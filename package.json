@@ -23,11 +23,11 @@
     "e2e:stdio:cancel:wp": "node scripts/e2e/stdio-cancel-regression.mjs --mode waiting-permission-cancel --iterations 20",
     "e2e:stdio:interrupt": "node scripts/e2e/stdio-cancel-regression.mjs --mode fast-interrupt --iterations 20",
     "e2e:stdio:interrupt:wp": "node scripts/e2e/stdio-cancel-regression.mjs --mode waiting-permission-interrupt --iterations 20",
-    "e2e:stdio:metadata": "npm run build && node scripts/e2e/stdio-metadata-smoke.mjs",
+    "e2e:stdio:metadata": "node scripts/e2e/stdio-metadata-integration.mjs",
     "e2e:stdio:reply-race": "node scripts/e2e/stdio-reply-race-regression.mjs",
     "e2e:stdio:runner": "node scripts/e2e/stdio-runner.mjs --iterations 20",
     "e2e": "npm run build && vitest run --config e2e/vitest.config.ts",
-    "prepublishOnly": "npm run build",
+    "prepublishOnly": "task build",
     "lint": "eslint src/ tests/",
     "format": "prettier --write \"src/**/*.ts\" \"tests/**/*.ts\"",
     "format:check": "prettier --check \"src/**/*.ts\" \"tests/**/*.ts\"",
@@ -75,8 +75,8 @@
     "CHANGELOG.md"
   ],
   "dependencies": {
-    "@anthropic-ai/claude-agent-sdk": "^0.2.81",
-    "@modelcontextprotocol/sdk": "^1.27.1",
+    "@anthropic-ai/claude-agent-sdk": "0.3.220",
+    "@modelcontextprotocol/sdk": "^1.29.0",
     "zod": "^4.3.6"
   },
   "devDependencies": {

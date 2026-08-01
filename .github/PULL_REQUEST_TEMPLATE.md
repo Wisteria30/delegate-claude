@@ -11,8 +11,5 @@
 
 ## Checklist
 
-- [ ] `npm run typecheck` passes
-- [ ] `npm run lint` passes
-- [ ] `npm test` passes
-- [ ] `npm run format:check` passes
+- [ ] `mise exec -- task ci` passes
 - [ ] Documentation updated (if applicable)

@@ -12,31 +12,9 @@ jobs:
   check:
     strategy:
       matrix:
-        include:
-          - os: ubuntu-latest
-            node-version: 18
-          - os: ubuntu-latest
-            node-version: 20
-          - os: ubuntu-latest
-            node-version: 22
-          - os: windows-latest
-            node-version: 18
-          - os: windows-latest
-            node-version: 20
-          - os: windows-latest
-            node-version: 22
-          - os: macos-latest
-            node-version: 22
+        os: [ubuntu-latest, windows-latest, macos-latest]
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: ${{ matrix.node-version }}
-          cache: npm
-      - run: npm ci
-      - run: npm run typecheck
-      - run: npm run lint
-      - run: npm run format:check
-      - run: npm test
-      - run: npm run build
+      - uses: jdx/mise-action@v3
+      - run: mise exec -- task ci

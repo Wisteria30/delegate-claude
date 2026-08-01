@@ -1,0 +1,56 @@
+version: "3"
+
+tasks:
+  install:
+    desc: Install the locked dependencies
+    cmds:
+      - npm ci
+
+  format:check:
+    desc: Check source formatting
+    cmds:
+      - npm run format:check
+
+  lint:
+    desc: Lint source and tests
+    cmds:
+      - npm run lint
+
+  typecheck:
+    desc: Type-check source and tests
+    cmds:
+      - npm run typecheck
+
+  test:
+    desc: Run the unit test suite
+    cmds:
+      - npm test
+
+  build:
+    desc: Build the package
+    cmds:
+      - npm run build
+
+  test:stdio:
+    desc: Verify MCP metadata over the built stdio transport
+    deps:
+      - build
+    cmds:
+      - node scripts/e2e/stdio-metadata-integration.mjs
+
+  ci:
+    desc: Run the complete local and CI quality gate
+    cmds:
+      - task: install
+      - task: format:check
+      - task: lint
+      - task: typecheck
+      - task: test
+      - task: test:stdio
+
+  pre-commit:
+    desc: Check staged files, types, and tests
+    cmds:
+      - npx --no-install lint-staged
+      - task: typecheck
+      - task: test
