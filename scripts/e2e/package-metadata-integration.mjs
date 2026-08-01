@@ -7,6 +7,7 @@ import { gunzipSync } from "node:zlib";
 const EXPECTED_PACKAGE_NAME = "@wisteria30/delegate-claude";
 const EXPECTED_EXECUTABLE_NAME = "delegate-claude";
 const EXPECTED_EXECUTABLE_PATH = "dist/index.js";
+const EXPECTED_NODE_SHEBANG = "#!/usr/bin/env node\n";
 const UPSTREAM_COPYRIGHT = "Copyright (c) 2026 claude-code-mcp contributors";
 
 function assert(condition, message) {
@@ -14,15 +15,15 @@ function assert(condition, message) {
 }
 
 function runNpmPack(args) {
-  const command = process.platform === "win32" ? "npm.cmd" : "npm";
+  // Windows: node refuses to spawn `npm.cmd` without a shell (CVE-2024-27980), and the
+  // shell then re-splits arguments, so every argument has to be quoted back together.
+  const isWindows = process.platform === "win32";
   const npmArguments = ["pack", "--ignore-scripts", "--json", ...args];
-  const commandArguments =
-    process.platform === "win32" ? npmArguments.map((argument) => `"${argument}"`) : npmArguments;
-  const result = spawnSync(command, commandArguments, {
-    cwd: process.cwd(),
-    encoding: "utf8",
-    shell: process.platform === "win32",
-  });
+  const result = spawnSync(
+    isWindows ? "npm.cmd" : "npm",
+    isWindows ? npmArguments.map((argument) => `"${argument}"`) : npmArguments,
+    { encoding: "utf8", shell: isWindows }
+  );
   if (result.error) throw result.error;
   if (result.status !== 0) {
     throw new Error(`npm pack failed with status ${result.status}: ${result.stderr.trim()}`);
@@ -45,20 +46,20 @@ function readTarEntries(tarballPath) {
       "package tarball contains a non-ustar header"
     );
 
+    // ustar fields are NUL-padded; everything before the first NUL is the value.
     const readString = (start, length) =>
-      header
-        .subarray(start, start + length)
-        .toString("utf8")
-        .replace(/\0.*$/s, "");
+      header.toString("utf8", start, start + length).split("\0")[0];
     const name = readString(0, 100);
     const prefix = readString(345, 155);
     const entryPath = prefix ? `${prefix}/${name}` : name;
-    const modeText = readString(100, 8).trim();
-    const mode = modeText === "" ? 0 : Number.parseInt(modeText, 8);
-    assert(Number.isSafeInteger(mode), `invalid tar entry mode for ${entryPath}`);
-    const sizeText = readString(124, 12).trim();
-    const size = sizeText === "" ? 0 : Number.parseInt(sizeText, 8);
-    assert(Number.isSafeInteger(size), `invalid tar entry size for ${entryPath}`);
+    const readOctal = (start, length, field) => {
+      const text = readString(start, length).trim();
+      const value = text === "" ? 0 : Number.parseInt(text, 8);
+      assert(Number.isSafeInteger(value), `invalid tar entry ${field} for ${entryPath}`);
+      return value;
+    };
+    const mode = readOctal(100, 8, "mode");
+    const size = readOctal(124, 12, "size");
 
     const dataOffset = offset + 512;
     entries.set(entryPath, { data: archive.subarray(dataOffset, dataOffset + size), mode });
@@ -77,9 +78,9 @@ function requiredEntry(entries, entryPath) {
 function verifyDryRunMetadata(metadata) {
   assert(metadata.name === EXPECTED_PACKAGE_NAME, "npm pack package name mismatch");
   assert(Array.isArray(metadata.files), "npm pack dry-run files metadata is missing");
-  const files = new Map(metadata.files.map((file) => [file.path, file]));
+  const packedPaths = new Set(metadata.files.map((file) => file.path));
   for (const filePath of ["package.json", "LICENSE", "NOTICE.md", EXPECTED_EXECUTABLE_PATH]) {
-    assert(files.has(filePath), `npm pack dry-run is missing ${filePath}`);
+    assert(packedPaths.has(filePath), `npm pack dry-run is missing ${filePath}`);
   }
 }
 
@@ -98,32 +99,52 @@ function verifyTarball(tarballPath) {
       Object.keys(packageJson.bin).length === 1,
     "tarball executable mapping mismatch"
   );
-  assert((executable.mode & 0o111) !== 0, "tarball executable entry is not executable");
+  assert(
+    executable.data.subarray(0, EXPECTED_NODE_SHEBANG.length).toString("utf8") ===
+      EXPECTED_NODE_SHEBANG,
+    "tarball executable entry is missing the Node.js shebang required by npm bin shims"
+  );
+  const executableProof =
+    process.platform === "win32"
+      ? "npm-bin-mapping-and-node-shebang"
+      : "tar-executable-mode-and-node-shebang";
+  // Windows npm shims use the exact bin mapping and Node shebang; POSIX launch also needs mode bits.
+  if (process.platform !== "win32") {
+    assert((executable.mode & 0o111) !== 0, "tarball executable entry is not executable");
+  }
   assert(license.includes(UPSTREAM_COPYRIGHT), "tarball LICENSE lost the upstream copyright");
   assert(notice.includes(UPSTREAM_COPYRIGHT), "tarball NOTICE lost the upstream copyright");
 
-  return { packageJson, executableMode: executable.mode };
+  // Report what the tarball actually carried, not what we expected it to carry.
+  return {
+    packageName: packageJson.name,
+    executablePath: packageJson.bin[EXPECTED_EXECUTABLE_NAME],
+    executableMode: executable.mode,
+    executableProof,
+  };
 }
 
 function main() {
   const dryRun = runNpmPack(["--dry-run"]);
   verifyDryRunMetadata(dryRun);
 
+  // The space is deliberate: it keeps the win32 argument quoting in runNpmPack exercised.
   const packDirectory = mkdtempSync(path.join(os.tmpdir(), "delegate claude pack-"));
   try {
     const packed = runNpmPack(["--pack-destination", packDirectory]);
     assert(packed.name === dryRun.name, "dry-run and tarball package names differ");
-    const { packageJson, executableMode } = verifyTarball(
+    const { packageName, executablePath, executableMode, executableProof } = verifyTarball(
       path.join(packDirectory, packed.filename)
     );
     process.stdout.write(
       `${JSON.stringify(
         {
           ok: true,
-          package: packageJson.name,
+          package: packageName,
           executable: EXPECTED_EXECUTABLE_NAME,
-          executablePath: packageJson.bin[EXPECTED_EXECUTABLE_NAME],
+          executablePath,
           executableMode,
+          executableProof,
           files: packed.entryCount,
           licenseNotice: UPSTREAM_COPYRIGHT,
         },
