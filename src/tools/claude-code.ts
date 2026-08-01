@@ -1,7 +1,6 @@
 /**
  * claude_code tool - Start a new Claude Code agent session
  */
-import { existsSync, statSync } from "node:fs";
 import type { SessionManager } from "../session/manager.js";
 import type {
   AgentDefinition,
@@ -26,6 +25,7 @@ import {
   normalizeWindowsPathLike,
 } from "../utils/normalize-windows-path.js";
 import { resolveExplicitClaudeExecutable } from "../utils/claude-executable.js";
+import { normalizeAndAssertWorkingDirectory } from "../utils/working-directory.js";
 
 /**
  * Low-frequency / SDK-passthrough options grouped under `advanced`.
@@ -95,31 +95,20 @@ export async function executeClaudeCode(
       error: `Error [${ErrorCode.INVALID_ARGUMENT}]: cwd must be a non-empty string.`,
     };
   }
-  const normalizedCwd = normalizeWindowsPathLike(cwd);
-  if (cwdProvided && !existsSync(normalizedCwd)) {
-    return {
-      sessionId: "",
-      status: "error",
-      error: `Error [${ErrorCode.INVALID_ARGUMENT}]: cwd path does not exist: ${normalizedCwd}`,
-    };
-  }
+  let normalizedCwd: string;
   if (cwdProvided) {
     try {
-      if (!statSync(normalizedCwd).isDirectory()) {
-        return {
-          sessionId: "",
-          status: "error",
-          error: `Error [${ErrorCode.INVALID_ARGUMENT}]: cwd must be a directory: ${normalizedCwd}`,
-        };
-      }
+      normalizedCwd = normalizeAndAssertWorkingDirectory(cwd, "cwd", "preserve");
     } catch (err: unknown) {
-      const detail = err instanceof Error ? ` (${err.message})` : "";
+      if (!(err instanceof Error)) throw err;
       return {
         sessionId: "",
         status: "error",
-        error: `Error [${ErrorCode.INVALID_ARGUMENT}]: cwd is not accessible: ${normalizedCwd}${detail}`,
+        error: err.message,
       };
     }
+  } else {
+    normalizedCwd = normalizeWindowsPathLike(cwd);
   }
 
   if (!sessionManager.hasCapacityFor(1)) {
