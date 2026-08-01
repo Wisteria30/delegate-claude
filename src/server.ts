@@ -607,7 +607,9 @@ export function createServerContext(serverCwd: string): {
         response: z
           .string()
           .optional()
-          .describe("Default: none. Optional free-form response for respond_user_input."),
+          .describe(
+            "Default: none. Optional free-form AskUserQuestion output supplied through PreToolUse updatedInput.response."
+          ),
         annotations: z
           .record(
             z.string(),

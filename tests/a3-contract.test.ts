@@ -304,7 +304,7 @@ describe("A3 permission and user-question contract", () => {
           sessionId: "question-session",
           requestId,
           answers: { "Which option?": "A,B" },
-          response: "selected",
+          response: "Use the existing Aurora PostgreSQL cluster",
           annotations: { "Which option?": { preview: "preview-a", notes: "note" } },
         },
         manager
@@ -316,8 +316,19 @@ describe("A3 permission and user-question contract", () => {
           hookEventName: "PreToolUse",
           permissionDecision: "allow",
           updatedInput: {
+            questions: [
+              {
+                question: "Which option?",
+                header: "Choice",
+                options: [
+                  { label: "A", description: "First", preview: "preview-a" },
+                  { label: "B", description: "Second" },
+                ],
+                multiSelect: true,
+              },
+            ],
             answers: { "Which option?": "A,B" },
-            response: "selected",
+            response: "Use the existing Aurora PostgreSQL cluster",
             annotations: { "Which option?": { preview: "preview-a", notes: "note" } },
           },
         },

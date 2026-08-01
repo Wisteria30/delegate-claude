@@ -339,7 +339,7 @@ Important protocol note: `action="poll"` is the main loop. Permission requests u
 | `requestId`         | string  | For either response    | Pending action request ID                                                                                                 |
 | `decision`          | string  | For respond_permission | `"allow"`, `"deny"`, or `"allow_for_session"`                                                                             |
 | `answers`           | object  | For respond_user_input | Question text to string answer. Multiple selections use one comma-separated string                                        |
-| `response`          | string  | No                     | Optional SDK user-question response text                                                                                  |
+| `response`          | string  | No                     | Optional free-form AskUserQuestion output supplied through `PreToolUse.updatedInput.response`                             |
 | `annotations`       | object  | No                     | Optional question-text keyed `{ preview?, notes? }` metadata                                                              |
 | `denyMessage`       | string  | No                     | Deny reason shown to Claude (`deny` only). Default: `"Permission denied by caller"`                                       |
 | `interrupt`         | boolean | No                     | When true, denying also interrupts the whole agent (`deny` only). Default: `false`                                        |
@@ -380,6 +380,7 @@ Notes:
 
 - On error (e.g. invalid arguments, missing/expired session): `{ sessionId, isError: true, error }`
 - A `user_question` action preserves `requestId`, `toolUseId`, question and option order, `multiSelect`, `createdAt`, and `expiresAt`. Answer it once with `respond_user_input`; unknown, expired, duplicate, or cross-session request IDs fail closed.
+- `response` is an `AskUserQuestionOutput` free-form value, not a field from `AskUserQuestionInput`. The server preserves the original tool input and supplies the value through `PreToolUse.updatedInput.response` so the same tool use and conversation continue.
 - User-question callbacks wait up to 30 minutes. Timeout ends the session with `USER_INPUT_TIMEOUT`; pending callbacks exist only in memory and are not recovered after process restart.
 - Always treat `cursor` as an incremental position: store `nextCursor` and pass it back on the next poll to avoid replaying old events.
 - If `cursorResetTo` is present, your `cursor` was too old (events were evicted); reset your cursor to `cursorResetTo`.

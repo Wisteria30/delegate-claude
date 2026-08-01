@@ -218,7 +218,7 @@
 
 1. 原始问题与选项顺序不变地生成 `user_question` action
 2. 会话进入 `waiting_user_input`，pending callback 只保存在进程内
-3. `respond_user_input` 将 `answers`、可选 `response` / `annotations` 合并回原始 tool input
+3. `respond_user_input` 将 `answers`、可选 `response` / `annotations` 合并回原始 tool input；`response` 是 `AskUserQuestionOutput` 的自由输入值（不是 `AskUserQuestionInput` 字段），通过 `PreToolUse.updatedInput.response` 交给 Claude Code 的 permission component
 4. respond/cancel/interrupt/shutdown/timeout 任一路径只完成一次 callback
 5. 标准 30 分钟 timeout 会拒绝该 tool use、终止 query，并在 terminal result 记录 `USER_INPUT_TIMEOUT`
 

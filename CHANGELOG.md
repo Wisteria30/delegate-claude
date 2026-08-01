@@ -19,7 +19,7 @@
 
 ### Documentation
 
-- Document permission-mode validation, user-question relay, callback lifecycle, and structured-error producer/consumer contracts across README, DESIGN, and MCP resources.
+- Document permission-mode validation, the `PreToolUse.updatedInput.response` user-question bridge, callback lifecycle, and structured-error producer/consumer contracts across README, DESIGN, and MCP resources.
 - Add OpenCode-specific setup and usage guidance, including local MCP config examples and async polling recommendations.
 - Sync maintainer and user documentation with the pinned toolchain and SDK 0.3.220 interface baseline.
 - Add usage reminders in model-visible guidance: long Claude Code runs are normal, and follow-up questions should use `claude_code_reply` with the existing session.
