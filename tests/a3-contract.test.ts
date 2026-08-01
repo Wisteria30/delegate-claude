@@ -342,6 +342,70 @@ describe("A3 permission and user-question contract", () => {
     }
   );
 
+  it.each([
+    ["disallowedTools", { disallowedTools: [" AskUserQuestion "] }],
+    ["strictAllowedTools", { allowedTools: ["Read"], strictAllowedTools: true }],
+  ] as const)("denies AskUserQuestion before registering it under %s policy", async (_, policy) => {
+    const manager = new SessionManager();
+    managers.push(manager);
+    let hookResult: Awaited<ReturnType<HookCallback>> | undefined;
+    mockQuery.mockImplementation((params) => {
+      const queryParams = params as QueryParams;
+      return (async function* () {
+        yield initMessage("policy-question", "default");
+        const hook = queryParams.options?.hooks?.PreToolUse?.[0]?.hooks[0];
+        hookResult = await hook!(
+          {
+            hook_event_name: "PreToolUse",
+            session_id: "policy-question",
+            cwd: "/tmp",
+            transcript_path: "/tmp/transcript",
+            permission_mode: "default",
+            tool_name: "AskUserQuestion",
+            tool_input: {
+              questions: [
+                {
+                  question: "Continue?",
+                  header: "Continue",
+                  options: [],
+                  multiSelect: false,
+                },
+              ],
+            },
+            tool_use_id: "policy-question-tool",
+          },
+          "policy-question-tool",
+          { signal: queryParams.options!.abortController!.signal }
+        );
+        yield successMessage("policy-question");
+      })() as unknown as QueryReturn;
+    });
+
+    const started = await executeClaudeCode(
+      {
+        prompt: "ask",
+        disallowedTools: "disallowedTools" in policy ? [...policy.disallowedTools] : undefined,
+        allowedTools: "allowedTools" in policy ? [...policy.allowedTools] : undefined,
+        strictAllowedTools: "strictAllowedTools" in policy ? policy.strictAllowedTools : undefined,
+      },
+      manager,
+      "/tmp"
+    );
+    expect(started.status).toBe("running");
+    await waitUntil(() => manager.get("policy-question")?.status === "idle");
+
+    expect(hookResult).toMatchObject({
+      hookSpecificOutput: {
+        hookEventName: "PreToolUse",
+        permissionDecision: "deny",
+      },
+    });
+    expect(manager.getPendingUserQuestionCount("policy-question")).toBe(0);
+    expect(
+      manager.readEvents("policy-question").events.some((event) => event.type === "user_question")
+    ).toBe(false);
+  });
+
   it("fails closed when a user-question request is answered through another session", () => {
     const manager = new SessionManager();
     managers.push(manager);

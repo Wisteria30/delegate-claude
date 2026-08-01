@@ -1091,6 +1091,7 @@ export class SessionManager {
       settingSources: _settingSources,
       debugFile: _debugFile,
       env: _env,
+      allowDangerouslySkipPermissions: _allowDangerouslySkipPermissions,
       ...rest
     } = info;
     /* eslint-enable @typescript-eslint/no-unused-vars */

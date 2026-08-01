@@ -7,6 +7,7 @@ const ALWAYS_REDACTED_FIELDS = [
   "settings",
   "debugFile",
   "pathToClaudeCodeExecutable",
+  "allowDangerouslySkipPermissions",
 ] as const;
 
 const CONDITIONAL_REDACTED_FIELDS = [

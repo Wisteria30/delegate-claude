@@ -138,6 +138,36 @@ function normalizePolicyToolNames(tools: string[] | undefined): string[] {
     .filter((tool) => tool !== "");
 }
 
+function getToolPolicyDenial(
+  session: SessionInfo | undefined,
+  normalizedToolName: string
+): Extract<PermissionResult, { behavior: "deny" }> | undefined {
+  if (!session || normalizedToolName === "") return undefined;
+
+  const disallowedTools = normalizePolicyToolNames(session.disallowedTools);
+  if (disallowedTools.includes(normalizedToolName)) {
+    return {
+      behavior: "deny",
+      message: `Tool '${normalizedToolName}' is disallowed by session policy.`,
+    };
+  }
+
+  const allowedTools = normalizePolicyToolNames(session.allowedTools);
+  if (
+    session.strictAllowedTools === true &&
+    allowedTools.length > 0 &&
+    !allowedTools.includes(normalizedToolName)
+  ) {
+    return {
+      behavior: "deny",
+      message: `Tool '${normalizedToolName}' is not in allowedTools under strictAllowedTools policy.`,
+      interrupt: false,
+    };
+  }
+
+  return undefined;
+}
+
 function sdkResultToAgentResult(
   result: SDKResultMessage,
   session: SessionInfo | undefined,
@@ -600,28 +630,10 @@ export function consumeQuery(params: ConsumeQueryParams): ConsumeQueryHandle {
     // defensive fast-path in case the SDK calls canUseTool for all tool uses.
     const sessionInfo = params.sessionManager.get(sessionId);
     if (sessionInfo) {
-      const disallowedTools = normalizePolicyToolNames(sessionInfo.disallowedTools);
+      const policyDenial = getToolPolicyDenial(sessionInfo, normalizedToolName);
+      if (policyDenial) return policyDenial;
+
       const allowedTools = normalizePolicyToolNames(sessionInfo.allowedTools);
-      if (normalizedToolName !== "" && disallowedTools.includes(normalizedToolName)) {
-        return {
-          behavior: "deny",
-          message: `Tool '${normalizedToolName}' is disallowed by session policy.`,
-        };
-      }
-
-      if (
-        sessionInfo.strictAllowedTools === true &&
-        normalizedToolName !== "" &&
-        allowedTools.length > 0 &&
-        !allowedTools.includes(normalizedToolName)
-      ) {
-        return {
-          behavior: "deny",
-          message: `Tool '${normalizedToolName}' is not in allowedTools under strictAllowedTools policy.`,
-          interrupt: false,
-        };
-      }
-
       if (
         !options.blockedPath &&
         normalizedToolName !== "" &&
@@ -715,6 +727,20 @@ export function consumeQuery(params: ConsumeQueryParams): ConsumeQueryHandle {
       return {};
     }
     const sessionId = await getSessionId();
+    const policyDenial = getToolPolicyDenial(
+      params.sessionManager.get(sessionId),
+      "AskUserQuestion"
+    );
+    if (policyDenial) {
+      return {
+        hookSpecificOutput: {
+          hookEventName: "PreToolUse",
+          permissionDecision: "deny",
+          permissionDecisionReason: policyDenial.message,
+        },
+      };
+    }
+
     const effectiveToolUseId = toolUseID ?? hookInput.tool_use_id;
     const requestId = `${effectiveToolUseId}:user-question:${Date.now()}:${Math.random()
       .toString(16)

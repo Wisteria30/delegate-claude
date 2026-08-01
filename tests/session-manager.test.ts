@@ -357,6 +357,8 @@ describe("SessionManager", () => {
       pathToClaudeCodeExecutable: "/usr/local/bin/claude",
       settingSources: ["user", "project"],
       debugFile: "/tmp/debug.log",
+      permissionMode: "bypassPermissions",
+      allowDangerouslySkipPermissions: true,
     });
     mgr.update("pub-test", { status: "idle" });
 
@@ -376,6 +378,7 @@ describe("SessionManager", () => {
     expect("pathToClaudeCodeExecutable" in pub).toBe(false);
     expect("settingSources" in pub).toBe(false);
     expect("debugFile" in pub).toBe(false);
+    expect("allowDangerouslySkipPermissions" in pub).toBe(false);
 
     mgr.destroy();
   });
