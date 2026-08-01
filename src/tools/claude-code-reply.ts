@@ -31,7 +31,7 @@ import {
 import { raceWithAbort } from "../utils/race-with-abort.js";
 import { buildOptions } from "../utils/build-options.js";
 import type { OptionSource } from "../utils/build-options.js";
-import { toSessionCreateParams } from "../utils/session-create.js";
+import { toSessionCreateParams } from "../session/create-params.js";
 import { normalizeWindowsPathLike } from "../utils/normalize-windows-path.js";
 import { resolveExplicitClaudeExecutable } from "../utils/claude-executable.js";
 

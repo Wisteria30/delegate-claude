@@ -1,7 +1,7 @@
-import type { SessionManager } from "../session/manager.js";
 import type { PermissionMode } from "../types.js";
 import { DEFAULT_SETTING_SOURCES } from "../types.js";
-import type { OptionSource } from "./build-options.js";
+import type { OptionSource } from "../utils/build-options.js";
+import type { SessionManager } from "./manager.js";
 
 export type SessionCreateParams = Parameters<SessionManager["create"]>[0];
 

@@ -674,7 +674,7 @@ export function createServerContext(serverCwd: string): {
     },
     async (args, extra) => {
       try {
-        const result = executeClaudeCodeCheck(args, sessionManager, toolCache, extra.signal);
+        const result = executeClaudeCodeCheck(args, sessionManager, extra.signal);
         const isError = (result as { isError?: boolean }).isError === true;
         return {
           content: [

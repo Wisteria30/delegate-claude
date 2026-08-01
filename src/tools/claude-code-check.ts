@@ -20,7 +20,6 @@ import {
   DEFAULT_POLL_INTERVAL_RUNNING_MS,
   DEFAULT_POLL_INTERVAL_WAITING_MS,
 } from "../types.js";
-import type { ToolDiscoveryCache } from "./tool-discovery.js";
 import { discoverToolsFromInit } from "./tool-discovery.js";
 
 /** Fine-grained poll control options (most callers just use responseMode). */
@@ -369,11 +368,7 @@ function capEventsByBytes<T>(events: T[], maxBytes?: number): { events: T[]; tru
   return { events: kept, truncated: kept.length < events.length };
 }
 
-function buildResult(
-  sessionManager: SessionManager,
-  toolCache: ToolDiscoveryCache | undefined,
-  input: ClaudeCodeCheckInput
-): CheckResult {
+function buildResult(sessionManager: SessionManager, input: ClaudeCodeCheckInput): CheckResult {
   const responseMode: CheckResponseMode = input.responseMode ?? "minimal";
   const compactMode = responseMode === "delta_compact";
   const po = input.pollOptions ?? {};
@@ -582,7 +577,6 @@ function redactAgentResult(
 export function executeClaudeCodeCheck(
   input: ClaudeCodeCheckInput,
   sessionManager: SessionManager,
-  toolCache?: ToolDiscoveryCache,
   requestSignal?: AbortSignal
 ): ClaudeCodeCheckResult {
   if (requestSignal?.aborted) {
@@ -611,7 +605,7 @@ export function executeClaudeCodeCheck(
   }
 
   if (input.action === "poll") {
-    return buildResult(sessionManager, toolCache, input);
+    return buildResult(sessionManager, input);
   }
 
   // respond_permission
@@ -671,5 +665,5 @@ export function executeClaudeCodeCheck(
     sessionManager.allowToolForSession(input.sessionId, pendingRequest.toolName);
   }
 
-  return buildResult(sessionManager, toolCache, input);
+  return buildResult(sessionManager, input);
 }
