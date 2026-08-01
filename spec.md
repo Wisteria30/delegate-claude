@@ -323,8 +323,8 @@ format check
 → lint
 → typecheck
 → unit test
-→ MCP integration test
 → build
+→ MCP integration test
 ```
 
 GitHub Actionsはclean checkoutから `task ci` を呼び出す。CI専用の検査コマンドを作らない。

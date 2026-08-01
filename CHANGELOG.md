@@ -4,7 +4,7 @@
 
 ### Improvements
 
-- Pin `@anthropic-ai/claude-agent-sdk` to `0.3.220`, update the direct MCP SDK dependency to its compatible `^1.29.0` line, and align test callback fixtures with the authoritative SDK types.
+- Pin `@anthropic-ai/claude-agent-sdk` to `0.3.220`, bound its Anthropic SDK peer at the compatible `^0.115.0` line, update the direct MCP SDK dependency to `^1.29.0`, and align test callback fixtures with the authoritative SDK types.
 - Pin Node.js 22.23.1 and Task 3.52.0 with mise, and make `Taskfile.yml` the shared local, hook, CI, and publish quality-command source.
 - Expand SDK stream/event mapping for `rate_limit_event`, `system/api_retry`, `system/local_command_output`, `system/elicitation_complete`, `system/compact_boundary`, and partial `stream_event` output.
 - Preserve newer SDK metadata in session/results, including `fastModeState` and richer permission prompt labels (`title`, `displayName`).

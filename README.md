@@ -619,8 +619,8 @@ its stdio MCP transport.
 ### E2E regression commands
 
 ```bash
-# Verify metadata through a real stdio MCP client transport
-mise exec -- task test:stdio
+# Run cancel->poll regression loop (single mode)
+mise exec -- npm run e2e:stdio:cancel
 
 # Run waiting_permission + cancel regression loop
 mise exec -- npm run e2e:stdio:cancel:wp

@@ -221,7 +221,7 @@ If a changed SDK field or message type is not reflected in at least one test, tr
 
 Pre-commit hook (`.husky/pre-commit`) runs `mise exec -- task pre-commit`, which performs:
 
-1. `npx lint-staged` (`prettier --write` + `eslint --fix` for staged `*.ts`)
+1. `npx --no-install lint-staged` (`prettier --write` + `eslint --fix` for staged `*.ts`)
 2. Type checking
 3. Unit tests
 

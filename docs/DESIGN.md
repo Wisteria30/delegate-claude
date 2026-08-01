@@ -81,6 +81,7 @@
 升级时以本地依赖安装后的类型定义为准：
 
 - Claude Agent SDK `0.3.220`：`node_modules/@anthropic-ai/claude-agent-sdk/sdk.d.ts`
+- Anthropic SDK `0.115.0`（满足 Agent SDK 的 `>=0.93.0` peer 条件，并由直接依赖的 `^0.115.0` 上限约束）
 - MCP SDK `1.30.0`：`node_modules/@modelcontextprotocol/sdk`（满足 Agent SDK 的 `^1.29.0` peer 条件）
 - zod `4.3.6`（满足两个 SDK 的 zod 4 peer 条件）
 
