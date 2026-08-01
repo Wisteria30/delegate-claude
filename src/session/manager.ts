@@ -17,7 +17,7 @@ import type {
   StructuredError,
   UserQuestionRequestRecord,
 } from "../types.js";
-import { ErrorCode } from "../types.js";
+import { ErrorCode, isActiveStatus, isWaitingStatus } from "../types.js";
 import { formatStructuredError, structuredError } from "../utils/structured-error.js";
 import { normalizeToolInput } from "../utils/normalize-tool-input.js";
 import { findUnsupportedPosixPathInToolInput } from "../utils/normalize-windows-path.js";
@@ -52,17 +52,15 @@ function normalizeToolPolicyNames(values: string[] | undefined): string[] {
     .filter((value) => value !== "");
 }
 
-type PendingPermission = {
-  record: PermissionRequestRecord;
+/** A caller action the session is blocked on, keyed by requestId in the runtime maps. */
+type PendingRequest<TRecord = unknown> = {
+  record: TRecord;
   finish: FinishFn;
   timeoutId?: ReturnType<typeof setTimeout>;
 };
 
-type PendingUserQuestion = {
-  record: UserQuestionRequestRecord;
-  finish: FinishFn;
-  timeoutId?: ReturnType<typeof setTimeout>;
-};
+type PendingPermission = PendingRequest<PermissionRequestRecord>;
+type PendingUserQuestion = PendingRequest<UserQuestionRequestRecord>;
 
 type SessionRuntimeState = {
   buffer: EventBuffer;
@@ -343,14 +341,9 @@ export class SessionManager {
     if (this.destroyed) return false;
     const info = this.sessions.get(sessionId);
     if (!info) return false;
-    if (
-      info.status !== "running" &&
-      info.status !== "waiting_permission" &&
-      info.status !== "waiting_user_input"
-    )
-      return false;
+    if (!isActiveStatus(info.status)) return false;
 
-    if (info.status === "waiting_permission" || info.status === "waiting_user_input") {
+    if (isWaitingStatus(info.status)) {
       this.finishAllPending(
         sessionId,
         // `cancel()` already aborts the running query below. Avoid sending an additional
@@ -383,14 +376,9 @@ export class SessionManager {
     if (this.destroyed) return false;
     const info = this.sessions.get(sessionId);
     if (!info) return false;
-    if (
-      info.status !== "running" &&
-      info.status !== "waiting_permission" &&
-      info.status !== "waiting_user_input"
-    )
-      return false;
+    if (!isActiveStatus(info.status)) return false;
 
-    if (info.status === "waiting_permission" || info.status === "waiting_user_input") {
+    if (isWaitingStatus(info.status)) {
       this.finishAllPending(
         sessionId,
         // Similar to cancel(), avoid emitting interrupt=true while the query stream is
@@ -538,11 +526,7 @@ export class SessionManager {
     const state = this.runtime.get(sessionId);
     const info = this.sessions.get(sessionId);
     if (!state || !info) return false;
-    if (
-      info.status !== "running" &&
-      info.status !== "waiting_permission" &&
-      info.status !== "waiting_user_input"
-    ) {
+    if (!isActiveStatus(info.status)) {
       try {
         finish({
           behavior: "deny",
@@ -658,12 +642,7 @@ export class SessionManager {
     if (!session) return undefined;
     const lastActiveMs = Date.parse(session.lastActiveAt);
     if (!Number.isFinite(lastActiveMs)) return undefined;
-    const limitMs =
-      session.status === "running" ||
-      session.status === "waiting_permission" ||
-      session.status === "waiting_user_input"
-        ? this.runningSessionMaxMs
-        : this.sessionTtlMs;
+    const limitMs = isActiveStatus(session.status) ? this.runningSessionMaxMs : this.sessionTtlMs;
     return Math.max(0, limitMs - (Date.now() - lastActiveMs));
   }
 
@@ -697,7 +676,7 @@ export class SessionManager {
     if (!state) return [];
     return Array.from(state.pendingPermissions.values())
       .map((p) => p.record)
-      .sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+      .sort((a, b) => (a.createdAt < b.createdAt ? -1 : a.createdAt > b.createdAt ? 1 : 0));
   }
 
   getPendingPermission(sessionId: string, requestId: string): PermissionRequestRecord | undefined {
@@ -716,11 +695,7 @@ export class SessionManager {
     const state = this.runtime.get(sessionId);
     const info = this.sessions.get(sessionId);
     if (!state || !info) return false;
-    if (
-      info.status !== "running" &&
-      info.status !== "waiting_permission" &&
-      info.status !== "waiting_user_input"
-    ) {
+    if (!isActiveStatus(info.status)) {
       finish({
         behavior: "deny",
         message: `Session is not accepting user questions (status: ${info.status}).`,
@@ -786,7 +761,7 @@ export class SessionManager {
     if (!state) return [];
     return Array.from(state.pendingUserQuestions.values())
       .map((pending) => pending.record)
-      .sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+      .sort((a, b) => (a.createdAt < b.createdAt ? -1 : a.createdAt > b.createdAt ? 1 : 0));
   }
 
   getPendingUserQuestion(
@@ -973,42 +948,36 @@ export class SessionManager {
     if (!state) return;
     if (state.pendingPermissions.size === 0 && state.pendingUserQuestions.size === 0) return;
 
-    this.beginDraining(sessionId);
-    try {
-      // Drain until empty so requests created during finish callbacks are also resolved.
-      while (state.pendingPermissions.size > 0) {
-        const next = state.pendingPermissions.keys().next();
+    // Drain until empty so requests created during finish callbacks are also resolved.
+    const drain = <T extends PendingRequest>(
+      map: Map<string, T>,
+      finishOne: (requestId: string) => boolean
+    ): void => {
+      while (map.size > 0) {
+        const next = map.keys().next();
         if (next.done || typeof next.value !== "string") break;
 
         const requestId = next.value;
-        const handled = this.finishRequest(sessionId, requestId, result, source);
-        if (!handled) {
-          const pending = state.pendingPermissions.get(requestId);
-          if (pending?.timeoutId) clearTimeout(pending.timeoutId);
-          state.pendingPermissions.delete(requestId);
-          try {
-            pending?.finish(result);
-          } catch {
-            // ignore finish errors
-          }
+        if (finishOne(requestId)) continue;
+        const pending = map.get(requestId);
+        if (pending?.timeoutId) clearTimeout(pending.timeoutId);
+        map.delete(requestId);
+        try {
+          pending?.finish(result);
+        } catch {
+          // Callback completion is already owned by this drain.
         }
       }
-      while (state.pendingUserQuestions.size > 0) {
-        const next = state.pendingUserQuestions.keys().next();
-        if (next.done || typeof next.value !== "string") break;
-        const requestId = next.value;
-        const handled = this.finishUserQuestion(sessionId, requestId, result, source);
-        if (!handled) {
-          const pending = state.pendingUserQuestions.get(requestId);
-          if (pending?.timeoutId) clearTimeout(pending.timeoutId);
-          state.pendingUserQuestions.delete(requestId);
-          try {
-            pending?.finish(result);
-          } catch {
-            // Callback completion is already owned by this drain.
-          }
-        }
-      }
+    };
+
+    this.beginDraining(sessionId);
+    try {
+      drain(state.pendingPermissions, (requestId) =>
+        this.finishRequest(sessionId, requestId, result, source)
+      );
+      drain(state.pendingUserQuestions, (requestId) =>
+        this.finishUserQuestion(sessionId, requestId, result, source)
+      );
     } finally {
       this.endDraining(sessionId);
     }
@@ -1018,7 +987,7 @@ export class SessionManager {
     if (
       restoreRunning &&
       info &&
-      (info.status === "waiting_permission" || info.status === "waiting_user_input") &&
+      isWaitingStatus(info.status) &&
       state.pendingPermissions.size === 0 &&
       state.pendingUserQuestions.size === 0
     ) {
@@ -1053,10 +1022,7 @@ export class SessionManager {
         info.queryInterrupt = undefined;
         info.status = "cancelled";
         info.lastActiveAt = new Date().toISOString();
-      } else if (
-        (info.status === "waiting_permission" || info.status === "waiting_user_input") &&
-        now - lastActive > this.runningSessionMaxMs
-      ) {
+      } else if (isWaitingStatus(info.status) && now - lastActive > this.runningSessionMaxMs) {
         this.finishAllPending(
           id,
           { behavior: "deny", message: "Session timed out", interrupt: true },
@@ -1070,12 +1036,7 @@ export class SessionManager {
         info.queryInterrupt = undefined;
         info.status = "cancelled";
         info.lastActiveAt = new Date().toISOString();
-      } else if (
-        info.status !== "running" &&
-        info.status !== "waiting_permission" &&
-        info.status !== "waiting_user_input" &&
-        now - lastActive > this.sessionTtlMs
-      ) {
+      } else if (!isActiveStatus(info.status) && now - lastActive > this.sessionTtlMs) {
         this.finishAllPending(
           id,
           { behavior: "deny", message: "Session expired", interrupt: true },
@@ -1148,12 +1109,7 @@ export class SessionManager {
       );
       // M6 fix: explicitly abort any session that has an active consumer,
       // regardless of whether it is "running" or "waiting_permission".
-      if (
-        (info.status === "running" ||
-          info.status === "waiting_permission" ||
-          info.status === "waiting_user_input") &&
-        info.abortController
-      ) {
+      if (isActiveStatus(info.status) && info.abortController) {
         info.abortController.abort();
       }
       info.queryInterrupt = undefined;
@@ -1326,12 +1282,7 @@ export class SessionManager {
     const state = this.runtime.get(sessionId);
     const info = this.sessions.get(sessionId);
     if (!state || !info) return;
-    if (
-      info.status !== "running" &&
-      info.status !== "waiting_permission" &&
-      info.status !== "waiting_user_input"
-    )
-      return;
+    if (!isActiveStatus(info.status)) return;
     info.status =
       state.pendingUserQuestions.size > 0
         ? "waiting_user_input"

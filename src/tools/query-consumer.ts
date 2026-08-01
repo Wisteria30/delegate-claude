@@ -1058,25 +1058,12 @@ export function consumeQuery(params: ConsumeQueryParams): ConsumeQueryHandle {
             },
             "cleanup"
           );
-          const terminalError = params.sessionManager.getTerminalError(sessionId);
-          const agentResult = terminalError
-            ? errorToAgentResult(sessionId, current, terminalError)
-            : errClass === "abort"
-              ? {
-                  sessionId,
-                  result: formatStructuredError(
-                    structuredError(ErrorCode.CANCELLED, "Session was cancelled.")
-                  ),
-                  isError: true,
-                  error: structuredError(ErrorCode.CANCELLED, "Session was cancelled."),
-                  model: current.model,
-                  claudeCodeVersion: current.claudeCodeVersion,
-                  permissionMode: current.permissionMode,
-                  durationMs: 0,
-                  numTurns: 0,
-                  totalCostUsd: 0,
-                }
-              : errorToAgentResult(sessionId, current);
+          const terminalError =
+            params.sessionManager.getTerminalError(sessionId) ??
+            (errClass === "abort"
+              ? structuredError(ErrorCode.CANCELLED, "Session was cancelled.")
+              : undefined);
+          const agentResult = errorToAgentResult(sessionId, current, terminalError);
 
           params.sessionManager.setResult(sessionId, {
             type: "error",

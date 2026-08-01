@@ -18,7 +18,7 @@ import type {
   PermissionMode,
   StructuredError,
 } from "../types.js";
-import { ErrorCode, DEFAULT_POLL_INTERVAL_RUNNING_MS } from "../types.js";
+import { ErrorCode, DEFAULT_POLL_INTERVAL_RUNNING_MS, isActiveStatus } from "../types.js";
 import { consumeQuery } from "./query-consumer.js";
 import type { ToolDiscoveryCache } from "./tool-discovery.js";
 import {
@@ -111,7 +111,7 @@ export type ClaudeCodeReplyStartResult =
 
 function toStartError(
   sessionId: string,
-  err: unknown
+  error: StructuredError
 ): {
   agentResult: {
     sessionId: string;
@@ -124,7 +124,6 @@ function toStartError(
   };
   error: StructuredError;
 } {
-  const error = toToolError(err, ErrorCode.SDK_START_FAILED);
   return {
     agentResult: {
       sessionId,
@@ -299,14 +298,14 @@ export async function executeClaudeCodeReply(
         return { sessionId: input.sessionId, status: "error", error };
       }
 
+      const resumed = sessionManager.get(input.sessionId);
       return {
         sessionId: input.sessionId,
         status: "running",
         pollInterval: DEFAULT_POLL_INTERVAL_RUNNING_MS,
-        model: sessionManager.get(input.sessionId)?.model,
-        claudeCodeVersion: sessionManager.get(input.sessionId)?.claudeCodeVersion,
-        permissionMode:
-          sessionManager.get(input.sessionId)?.permissionMode ?? source.permissionMode ?? "default",
+        model: resumed?.model,
+        claudeCodeVersion: resumed?.claudeCodeVersion,
+        permissionMode: resumed?.permissionMode ?? source.permissionMode ?? "default",
         resumeToken: computeResumeToken(input.sessionId, resumeSecret),
       };
     } catch (err: unknown) {
@@ -337,11 +336,7 @@ export async function executeClaudeCodeReply(
     }
   }
 
-  if (
-    existing.status === "running" ||
-    existing.status === "waiting_permission" ||
-    existing.status === "waiting_user_input"
-  ) {
+  if (isActiveStatus(existing.status)) {
     return {
       sessionId: input.sessionId,
       status: "error",
@@ -375,7 +370,7 @@ export async function executeClaudeCodeReply(
     return {
       sessionId: input.sessionId,
       status: "error",
-      error: toStartError(input.sessionId, err).error,
+      error: toToolError(err, ErrorCode.SDK_START_FAILED),
     };
   }
 

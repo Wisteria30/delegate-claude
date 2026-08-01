@@ -321,7 +321,7 @@ List, inspect, cancel, or interrupt sessions.
 
 **Returns:** `{ sessions, message?, isError? }`
 
-`sessions[]` now includes lightweight diagnostics fields: `pendingPermissionCount`, `eventCount`, `currentCursor`, `lastEventId`, `ttlMs`, `lastError?`, `lastErrorAt?`, `fastModeState?`, and `redactions[]`.
+`sessions[]` and `delegate-claude:///session/{sessionId}` include lightweight diagnostics fields: `pendingPermissionCount`, `pendingUserQuestionCount`, `eventCount`, `currentCursor`, `lastEventId`, `ttlMs`, `lastError?`, `lastErrorAt?`, `fastModeState?`, and `redactions[]`.
 
 ### `claude_code_check` — Poll events and respond to interactive actions
 

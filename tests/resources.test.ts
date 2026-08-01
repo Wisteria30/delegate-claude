@@ -256,11 +256,16 @@ describe("Resources", () => {
           : "{}";
       const sessionSnapshotJson = JSON.parse(sessionSnapshotText) as {
         found?: unknown;
-        session?: { sessionId?: unknown; pendingPermissionCount?: unknown };
+        session?: {
+          sessionId?: unknown;
+          pendingPermissionCount?: unknown;
+          pendingUserQuestionCount?: unknown;
+        };
       };
       expect(sessionSnapshotJson.found).toBe(true);
       expect(sessionSnapshotJson.session?.sessionId).toBe("s-template");
       expect(sessionSnapshotJson.session?.pendingPermissionCount).toBe(0);
+      expect(sessionSnapshotJson.session?.pendingUserQuestionCount).toBe(0);
 
       const runtimeToolsNoInit = await client.readResource({
         uri: "delegate-claude:///tools/runtime?sessionId=s-template",

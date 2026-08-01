@@ -20,6 +20,7 @@ import {
   ErrorCode,
   DEFAULT_POLL_INTERVAL_RUNNING_MS,
   DEFAULT_POLL_INTERVAL_WAITING_MS,
+  isWaitingStatus,
 } from "../types.js";
 import { discoverToolsFromInit } from "./tool-discovery.js";
 import { structuredError } from "../utils/structured-error.js";
@@ -83,8 +84,7 @@ function checkError(sessionId: string, code: ErrorCode, message: string): Claude
 }
 
 function pollIntervalForStatus(status: SessionStatus): number | undefined {
-  if (status === "waiting_permission" || status === "waiting_user_input")
-    return DEFAULT_POLL_INTERVAL_WAITING_MS;
+  if (isWaitingStatus(status)) return DEFAULT_POLL_INTERVAL_WAITING_MS;
   if (status === "running") return DEFAULT_POLL_INTERVAL_RUNNING_MS;
   return undefined;
 }
@@ -485,41 +485,43 @@ function buildResult(sessionManager: SessionManager, input: ClaudeCodeCheckInput
         : (cursorResetTo ?? input.cursor ?? 0);
   }
 
-  const actions: NonNullable<CheckResult["actions"]> = [
-    ...pendingPermissions.map((req) => {
-      const expiresMs = req.expiresAt ? Date.parse(req.expiresAt) : Number.NaN;
-      const remainingMs = Number.isFinite(expiresMs)
-        ? Math.max(0, expiresMs - Date.now())
-        : undefined;
-      return {
-        type: "permission" as const,
-        requestId: req.requestId,
-        toolName: req.toolName,
-        input: req.input,
-        summary: req.summary,
-        title: req.title,
-        displayName: req.displayName,
-        decisionReason: req.decisionReason,
-        blockedPath: req.blockedPath,
-        toolUseID: req.toolUseID,
-        agentID: req.agentID,
-        suggestions: req.suggestions,
-        description: req.description,
-        createdAt: req.createdAt,
-        timeoutMs: req.timeoutMs,
-        expiresAt: req.expiresAt,
-        remainingMs,
-      };
-    }),
-    ...pendingQuestions.map((req) => ({
-      type: "user_question" as const,
-      requestId: req.requestId,
-      toolUseId: req.toolUseId,
-      questions: req.questions,
-      createdAt: req.createdAt,
-      expiresAt: req.expiresAt,
-    })),
-  ];
+  const actions: NonNullable<CheckResult["actions"]> = !includeActions
+    ? []
+    : [
+        ...pendingPermissions.map((req) => {
+          const expiresMs = req.expiresAt ? Date.parse(req.expiresAt) : Number.NaN;
+          const remainingMs = Number.isFinite(expiresMs)
+            ? Math.max(0, expiresMs - Date.now())
+            : undefined;
+          return {
+            type: "permission" as const,
+            requestId: req.requestId,
+            toolName: req.toolName,
+            input: req.input,
+            summary: req.summary,
+            title: req.title,
+            displayName: req.displayName,
+            decisionReason: req.decisionReason,
+            blockedPath: req.blockedPath,
+            toolUseID: req.toolUseID,
+            agentID: req.agentID,
+            suggestions: req.suggestions,
+            description: req.description,
+            createdAt: req.createdAt,
+            timeoutMs: req.timeoutMs,
+            expiresAt: req.expiresAt,
+            remainingMs,
+          };
+        }),
+        ...pendingQuestions.map((req) => ({
+          type: "user_question" as const,
+          requestId: req.requestId,
+          toolUseId: req.toolUseId,
+          questions: req.questions,
+          createdAt: req.createdAt,
+          expiresAt: req.expiresAt,
+        })),
+      ];
 
   return {
     sessionId,

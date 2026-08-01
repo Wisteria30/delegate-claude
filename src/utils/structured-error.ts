@@ -16,6 +16,8 @@ const RECOVERABLE_CODES = new Set<ErrorCode>([
   ErrorCode.CANCELLED,
 ]);
 
+const ERROR_CODES = new Set<string>(Object.values(ErrorCode));
+
 export class DelegateError extends Error {
   readonly detail: StructuredError;
 
@@ -26,8 +28,12 @@ export class DelegateError extends Error {
   }
 }
 
+export function isRecoverable(code: ErrorCode): boolean {
+  return RECOVERABLE_CODES.has(code);
+}
+
 export function structuredError(code: ErrorCode, message: string): StructuredError {
-  return { code, message, recoverable: RECOVERABLE_CODES.has(code) };
+  return { code, message, recoverable: isRecoverable(code) };
 }
 
 export function formatStructuredError(error: StructuredError): string {
@@ -38,29 +44,29 @@ export function toStructuredError(err: unknown, fallbackCode: ErrorCode): Struct
   if (err instanceof DelegateError) return err.detail;
   const message = err instanceof Error ? err.message : String(err);
   const match = /^Error \[([A-Z_]+)\]:\s*(.*)$/s.exec(message);
-  if (match) {
-    const code = Object.values(ErrorCode).find((candidate) => candidate === match[1]);
-    if (code) return structuredError(code, match[2] ?? "Unknown error");
+  if (match && ERROR_CODES.has(match[1])) {
+    return structuredError(match[1] as ErrorCode, match[2] ?? "Unknown error");
   }
   return structuredError(fallbackCode, message);
 }
 
 export function classifySdkStartError(err: unknown, explicitModel?: string): StructuredError {
   const message = err instanceof Error ? err.message : String(err);
-  const lower = message.toLowerCase();
-  if (
-    explicitModel &&
-    (lower.includes("model") || lower.includes(explicitModel.toLowerCase())) &&
-    (lower.includes("not available") ||
-      lower.includes("unavailable") ||
-      lower.includes("not found") ||
-      lower.includes("not allowed") ||
-      lower.includes("unsupported"))
-  ) {
-    return structuredError(
-      ErrorCode.MODEL_UNAVAILABLE,
-      `Requested model '${explicitModel}' is unavailable.`
-    );
+  if (explicitModel) {
+    const lower = message.toLowerCase();
+    if (
+      (lower.includes("model") || lower.includes(explicitModel.toLowerCase())) &&
+      (lower.includes("not available") ||
+        lower.includes("unavailable") ||
+        lower.includes("not found") ||
+        lower.includes("not allowed") ||
+        lower.includes("unsupported"))
+    ) {
+      return structuredError(
+        ErrorCode.MODEL_UNAVAILABLE,
+        `Requested model '${explicitModel}' is unavailable.`
+      );
+    }
   }
   const known = toStructuredError(err, ErrorCode.SDK_START_FAILED);
   return known.code === ErrorCode.SDK_START_FAILED

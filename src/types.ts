@@ -52,6 +52,16 @@ export type SessionStatus =
   | "cancelled"
   | "error";
 
+/** True while a session still has an active query turn (running or blocked on a caller action). */
+export function isActiveStatus(status: SessionStatus): boolean {
+  return status === "running" || status === "waiting_permission" || status === "waiting_user_input";
+}
+
+/** True while a session is blocked waiting for the caller to answer a pending action. */
+export function isWaitingStatus(status: SessionStatus): boolean {
+  return status === "waiting_permission" || status === "waiting_user_input";
+}
+
 export type SystemPrompt = string | { type: "preset"; preset: "claude_code"; append?: string };
 
 export type OutputFormat = { type: "json_schema"; schema: Record<string, unknown> };

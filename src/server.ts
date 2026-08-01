@@ -269,6 +269,24 @@ export function createServerContext(serverCwd: string): {
     .optional()
     .describe("Default: none");
 
+  /** Shape a tool payload into the MCP text+structured response envelope. */
+  const toToolResponse = (payload: unknown, isError: boolean) => ({
+    content: [
+      {
+        type: "text" as const,
+        text: JSON.stringify(payload, null, 2),
+      },
+    ],
+    structuredContent: payload as Record<string, unknown>,
+    isError,
+  });
+
+  const structuredErrorSchema = z.object({
+    code: z.string(),
+    message: z.string(),
+    recoverable: z.boolean(),
+  });
+
   const startResultSchema = z
     .object({
       sessionId: z.string(),
@@ -279,13 +297,7 @@ export function createServerContext(serverCwd: string): {
       permissionMode: z.enum(PERMISSION_MODES).optional(),
       resumeToken: z.string().optional(),
       compatWarnings: z.array(z.string()).optional(),
-      error: z
-        .object({
-          code: z.string(),
-          message: z.string(),
-          recoverable: z.boolean(),
-        })
-        .optional(),
+      error: structuredErrorSchema.optional(),
     })
     .passthrough();
 
@@ -293,9 +305,7 @@ export function createServerContext(serverCwd: string): {
     .object({
       sessions: z.array(z.record(z.string(), z.unknown())),
       message: z.string().optional(),
-      error: z
-        .object({ code: z.string(), message: z.string(), recoverable: z.boolean() })
-        .optional(),
+      error: structuredErrorSchema.optional(),
       isError: z.boolean().optional(),
     })
     .passthrough();
@@ -346,9 +356,7 @@ export function createServerContext(serverCwd: string): {
       lastEventId: z.number().optional(),
       lastToolUseId: z.string().optional(),
       isError: z.boolean().optional(),
-      error: z
-        .object({ code: z.string(), message: z.string(), recoverable: z.boolean() })
-        .optional(),
+      error: structuredErrorSchema.optional(),
     })
     .passthrough();
 
@@ -426,32 +434,14 @@ export function createServerContext(serverCwd: string): {
           extra.signal
         );
         const isError = (result as { error?: unknown }).error !== undefined;
-        return {
-          content: [
-            {
-              type: "text" as const,
-              text: JSON.stringify(result, null, 2),
-            },
-          ],
-          structuredContent: result as unknown as Record<string, unknown>,
-          isError,
-        };
+        return toToolResponse(result, isError);
       } catch {
         const errorResult = {
           sessionId: "",
           status: "error" as const,
           error: structuredError(LocalErrorCode.INTERNAL, "Unexpected internal failure."),
         };
-        return {
-          content: [
-            {
-              type: "text" as const,
-              text: JSON.stringify(errorResult, null, 2),
-            },
-          ],
-          structuredContent: errorResult as unknown as Record<string, unknown>,
-          isError: true,
-        };
+        return toToolResponse(errorResult, true);
       }
     }
   );
@@ -516,32 +506,14 @@ export function createServerContext(serverCwd: string): {
       try {
         const result = await executeClaudeCodeReply(args, sessionManager, toolCache, extra.signal);
         const isError = (result as { error?: unknown }).error !== undefined;
-        return {
-          content: [
-            {
-              type: "text" as const,
-              text: JSON.stringify(result, null, 2),
-            },
-          ],
-          structuredContent: result as unknown as Record<string, unknown>,
-          isError,
-        };
+        return toToolResponse(result, isError);
       } catch {
         const errorResult = {
           sessionId: "",
           status: "error" as const,
           error: structuredError(LocalErrorCode.INTERNAL, "Unexpected internal failure."),
         };
-        return {
-          content: [
-            {
-              type: "text" as const,
-              text: JSON.stringify(errorResult, null, 2),
-            },
-          ],
-          structuredContent: errorResult as unknown as Record<string, unknown>,
-          isError: true,
-        };
+        return toToolResponse(errorResult, true);
       }
     }
   );
@@ -574,32 +546,14 @@ export function createServerContext(serverCwd: string): {
     async (args, extra) => {
       try {
         const result = executeClaudeCodeSession(args, sessionManager, extra.signal);
-        return {
-          content: [
-            {
-              type: "text" as const,
-              text: JSON.stringify(result, null, 2),
-            },
-          ],
-          structuredContent: result as unknown as Record<string, unknown>,
-          isError: result.isError ?? false,
-        };
+        return toToolResponse(result, result.isError ?? false);
       } catch {
         const errorResult = {
           sessions: [],
           error: structuredError(LocalErrorCode.INTERNAL, "Unexpected internal failure."),
           isError: true,
         };
-        return {
-          content: [
-            {
-              type: "text" as const,
-              text: JSON.stringify(errorResult, null, 2),
-            },
-          ],
-          structuredContent: errorResult as unknown as Record<string, unknown>,
-          isError: true,
-        };
+        return toToolResponse(errorResult, true);
       }
     }
   );
@@ -744,16 +698,7 @@ export function createServerContext(serverCwd: string): {
       try {
         const result = executeClaudeCodeCheck(args, sessionManager, extra.signal);
         const isError = (result as { isError?: boolean }).isError === true;
-        return {
-          content: [
-            {
-              type: "text" as const,
-              text: JSON.stringify(result, null, 2),
-            },
-          ],
-          structuredContent: result as unknown as Record<string, unknown>,
-          isError,
-        };
+        return toToolResponse(result, isError);
       } catch {
         const errorResult = {
           sessionId: args.sessionId ?? "",
@@ -762,16 +707,7 @@ export function createServerContext(serverCwd: string): {
           isError: true,
           error: structuredError(LocalErrorCode.INTERNAL, "Unexpected internal failure."),
         };
-        return {
-          content: [
-            {
-              type: "text" as const,
-              text: JSON.stringify(errorResult, null, 2),
-            },
-          ],
-          structuredContent: errorResult as unknown as Record<string, unknown>,
-          isError: true,
-        };
+        return toToolResponse(errorResult, true);
       }
     }
   );

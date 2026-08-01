@@ -7,14 +7,14 @@ import {
   ErrorCode,
   DEFAULT_POLL_INTERVAL_RUNNING_MS,
   DEFAULT_POLL_INTERVAL_WAITING_MS,
-  type PublicSessionInfo,
 } from "../types.js";
 import {
   defaultCatalogTools,
   discoverToolsFromInit,
   type ToolDiscoveryCache,
 } from "../tools/tool-discovery.js";
-import { structuredError } from "../utils/structured-error.js";
+import { buildSessionRedactions } from "../utils/session-redactions.js";
+import { isRecoverable } from "../utils/structured-error.js";
 const RESOURCE_SCHEME = "delegate-claude";
 
 export const RESOURCE_URIS = {
@@ -75,26 +75,39 @@ function extractSingleVariable(value: string | string[] | null | undefined): str
   return undefined;
 }
 
-function buildSessionRedactions(includeSensitive: boolean): PublicSessionInfo["redactions"] {
-  const redactions: PublicSessionInfo["redactions"] = [
-    { field: "env", reason: "secret_or_internal" },
-    { field: "mcpServers", reason: "secret_or_internal" },
-    { field: "sandbox", reason: "secret_or_internal" },
-    { field: "settings", reason: "secret_or_internal" },
-    { field: "debugFile", reason: "secret_or_internal" },
-    { field: "pathToClaudeCodeExecutable", reason: "secret_or_internal" },
-  ];
-  if (!includeSensitive) {
-    redactions.push(
-      { field: "cwd", reason: "sensitive_by_default" },
-      { field: "systemPrompt", reason: "sensitive_by_default" },
-      { field: "agents", reason: "sensitive_by_default" },
-      { field: "additionalDirectories", reason: "sensitive_by_default" },
-      { field: "toolConfig", reason: "sensitive_by_default" }
-    );
-  }
-  return redactions;
-}
+/** Static error catalog served by the `errors` resource (constant for the process lifetime). */
+const ERROR_CATALOG = {
+  codes: Object.values(ErrorCode),
+  hints: {
+    [ErrorCode.INVALID_ARGUMENT]: "Validate required fields and enum values.",
+    [ErrorCode.SESSION_NOT_FOUND]: "Session may be expired or server-restarted.",
+    [ErrorCode.SESSION_BUSY]: "Wait for running/waiting_permission session to settle.",
+    [ErrorCode.PERMISSION_REQUEST_NOT_FOUND]:
+      "The permission request was already finished/expired.",
+    [ErrorCode.USER_INPUT_REQUEST_NOT_FOUND]:
+      "The user question was already answered, expired, or never existed in this process.",
+    [ErrorCode.USER_INPUT_SESSION_MISMATCH]:
+      "Use the sessionId that owns this user-question requestId.",
+    [ErrorCode.PERMISSION_DENIED]: "Check token/secrets/policy restrictions.",
+    [ErrorCode.MODEL_UNAVAILABLE]:
+      "Choose an available model explicitly; no alternate model is tried.",
+    [ErrorCode.USER_INPUT_TIMEOUT]: "Start a new turn; pending questions are in-memory only.",
+    [ErrorCode.PERMISSION_TIMEOUT]: "Respond to permission actions before expiresAt.",
+    [ErrorCode.SDK_START_FAILED]:
+      "Check the explicit executable, credentials, and SDK startup environment.",
+    [ErrorCode.SDK_EXECUTION_FAILED]:
+      "Inspect non-sensitive session events and the explicit execution limits.",
+    [ErrorCode.SDK_PROTOCOL_ERROR]:
+      "Check the installed SDK contract and captured non-sensitive event metadata.",
+    [ErrorCode.RESOURCE_EXHAUSTED]: "Reduce session count or increase server limits.",
+    [ErrorCode.TIMEOUT]: "Increase timeout or poll/respond more frequently.",
+    [ErrorCode.CANCELLED]: "Request/session was cancelled by caller or shutdown.",
+    [ErrorCode.INTERNAL]: "Inspect server logs and runtime environment.",
+  },
+  recoverable: Object.fromEntries(
+    Object.values(ErrorCode).map((code) => [code, isRecoverable(code)])
+  ),
+};
 
 function buildGotchasEntries(): GotchaEntry[] {
   return [
@@ -396,46 +409,12 @@ export function registerResources(
       mimeType: "application/json",
     },
     () => {
-      const codes = Object.values(ErrorCode);
-      const recoverable = Object.fromEntries(
-        codes.map((code) => [code, structuredError(code, "").recoverable])
-      );
-      const hints = {
-        [ErrorCode.INVALID_ARGUMENT]: "Validate required fields and enum values.",
-        [ErrorCode.SESSION_NOT_FOUND]: "Session may be expired or server-restarted.",
-        [ErrorCode.SESSION_BUSY]: "Wait for running/waiting_permission session to settle.",
-        [ErrorCode.PERMISSION_REQUEST_NOT_FOUND]:
-          "The permission request was already finished/expired.",
-        [ErrorCode.USER_INPUT_REQUEST_NOT_FOUND]:
-          "The user question was already answered, expired, or never existed in this process.",
-        [ErrorCode.USER_INPUT_SESSION_MISMATCH]:
-          "Use the sessionId that owns this user-question requestId.",
-        [ErrorCode.PERMISSION_DENIED]: "Check token/secrets/policy restrictions.",
-        [ErrorCode.MODEL_UNAVAILABLE]:
-          "Choose an available model explicitly; no alternate model is tried.",
-        [ErrorCode.USER_INPUT_TIMEOUT]: "Start a new turn; pending questions are in-memory only.",
-        [ErrorCode.PERMISSION_TIMEOUT]: "Respond to permission actions before expiresAt.",
-        [ErrorCode.SDK_START_FAILED]:
-          "Check the explicit executable, credentials, and SDK startup environment.",
-        [ErrorCode.SDK_EXECUTION_FAILED]:
-          "Inspect non-sensitive session events and the explicit execution limits.",
-        [ErrorCode.SDK_PROTOCOL_ERROR]:
-          "Check the installed SDK contract and captured non-sensitive event metadata.",
-        [ErrorCode.RESOURCE_EXHAUSTED]: "Reduce session count or increase server limits.",
-        [ErrorCode.TIMEOUT]: "Increase timeout or poll/respond more frequently.",
-        [ErrorCode.CANCELLED]: "Request/session was cancelled by caller or shutdown.",
-        [ErrorCode.INTERNAL]: "Inspect server logs and runtime environment.",
-      };
       return asJsonResource(
         errorsUri,
         asVersionedPayload({
           schemaVersion: resourceSchemaVersion,
           stability: "stable",
-          payload: {
-            codes,
-            hints,
-            recoverable,
-          },
+          payload: ERROR_CATALOG,
         })
       );
     }
@@ -600,6 +579,8 @@ export function registerResources(
                 session: {
                   ...base,
                   pendingPermissionCount: deps.sessionManager.getPendingPermissionCount(sessionId),
+                  pendingUserQuestionCount:
+                    deps.sessionManager.getPendingUserQuestionCount(sessionId),
                   eventCount: deps.sessionManager.getEventCount(sessionId),
                   currentCursor: deps.sessionManager.getCurrentCursor(sessionId),
                   lastEventId: deps.sessionManager.getLastEventId(sessionId),

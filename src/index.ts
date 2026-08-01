@@ -9,6 +9,7 @@ import { createServerContext } from "./server.js";
 import { isBenignRuntimeError } from "./utils/runtime-errors.js";
 import { decideStdinShutdown } from "./utils/stdin-shutdown.js";
 import { checkWindowsBashAvailability } from "./utils/windows.js";
+import { isActiveStatus } from "./types.js";
 
 const STDIN_SHUTDOWN_CHECK_MS = 750;
 const STDIN_SHUTDOWN_MAX_WAIT_MS = process.platform === "win32" ? 15_000 : 10_000;
@@ -21,9 +22,14 @@ function summarizeSessions(ctx: ReturnType<typeof createServerContext>): {
   terminal: number;
 } {
   const sessions = ctx.sessionManager.list();
-  const running = sessions.filter((s) => s.status === "running").length;
-  const waitingPermission = sessions.filter((s) => s.status === "waiting_permission").length;
-  const waitingUserInput = sessions.filter((s) => s.status === "waiting_user_input").length;
+  let running = 0;
+  let waitingPermission = 0;
+  let waitingUserInput = 0;
+  for (const s of sessions) {
+    if (s.status === "running") running += 1;
+    else if (s.status === "waiting_permission") waitingPermission += 1;
+    else if (s.status === "waiting_user_input") waitingUserInput += 1;
+  }
   return {
     total: sessions.length,
     running,
@@ -97,14 +103,7 @@ async function main(): Promise<void> {
   }
 
   function hasActiveSessions(): boolean {
-    return sessionManager
-      .list()
-      .some(
-        (s) =>
-          s.status === "running" ||
-          s.status === "waiting_permission" ||
-          s.status === "waiting_user_input"
-      );
+    return sessionManager.list().some((s) => isActiveStatus(s.status));
   }
 
   const evaluateStdinTermination = () => {

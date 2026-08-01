@@ -184,6 +184,39 @@ describe("A3 permission and user-question contract", () => {
     expect((mockQuery.mock.calls[0]![0] as QueryParams).options?.model).toBe("claude-missing");
   });
 
+  it("preserves the structured SDK start error in reply terminal state", async () => {
+    const manager = new SessionManager();
+    managers.push(manager);
+    manager.create({
+      sessionId: "reply-start-failure",
+      cwd: "/tmp",
+      model: "claude-test",
+    });
+    manager.update("reply-start-failure", { status: "idle" });
+    mockQuery.mockImplementation(() => {
+      throw new Error("SDK process did not start");
+    });
+
+    const result = await executeClaudeCodeReply(
+      { sessionId: "reply-start-failure", prompt: "continue" },
+      manager
+    );
+
+    expect(result.status === "error" ? result.error : undefined).toEqual({
+      code: "SDK_START_FAILED",
+      message: "Claude Agent SDK failed to start.",
+      recoverable: false,
+    });
+    const stored = manager.getResult("reply-start-failure")?.result;
+    expect(stored?.error).toEqual({
+      code: "SDK_START_FAILED",
+      message: "Claude Agent SDK failed to start.",
+      recoverable: false,
+    });
+    expect(stored?.result).toBe("Error [SDK_START_FAILED]: Claude Agent SDK failed to start.");
+    expect(stored?.result).not.toContain("[object Object]");
+  });
+
   it.each([
     ["default", undefined],
     ["bypassPermissions", true],
