@@ -2,6 +2,12 @@
 
 This project (`@wisteria30/delegate-claude`) is licensed under the MIT License (see `LICENSE`).
 
+This project contains work derived from
+[`xihuai18/claude-code-mcp@47aa47b4f7f02f5dd5c6bc9174d30a42f54484f2`](https://github.com/xihuai18/claude-code-mcp/tree/47aa47b4f7f02f5dd5c6bc9174d30a42f54484f2),
+originally distributed under the MIT License with this notice:
+
+Copyright (c) 2026 claude-code-mcp contributors
+
 ## Third-party components
 
 This project depends on third-party packages. Their licenses and terms may impose additional

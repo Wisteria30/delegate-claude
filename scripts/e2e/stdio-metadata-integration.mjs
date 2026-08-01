@@ -1,6 +1,5 @@
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
-import { readFile } from "node:fs/promises";
 import path from "node:path";
 
 function transportConfig() {
@@ -46,10 +45,6 @@ async function main() {
       "server websiteUrl is not the delegate-claude repository"
     );
 
-    const packageJson = JSON.parse(await readFile(path.join(process.cwd(), "package.json"), "utf8"));
-    assert(packageJson.name === "@wisteria30/delegate-claude", "npm package name mismatch");
-    assert(packageJson.bin?.["delegate-claude"] === "dist/index.js", "npm executable mismatch");
-
     const listed = await client.listTools();
     const toolNames = listed.tools.map((tool) => tool.name);
     const claudeCode = listed.tools.find((tool) => tool.name === "claude_code");
@@ -79,18 +74,26 @@ async function main() {
     const resourceUris = resources.resources.map((resource) => resource.uri);
     assert(resourceUris.includes("delegate-claude:///quickstart"), "quickstart resource missing");
     assert(resourceUris.includes("delegate-claude:///gotchas"), "gotchas resource missing");
-    assert(resourceUris.includes("delegate-claude:///compat-report"), "compat-report resource missing");
+    assert(
+      resourceUris.includes("delegate-claude:///compat-report"),
+      "compat-report resource missing"
+    );
 
     const quickstartText = getTextContent(
       await client.readResource({ uri: "delegate-claude:///quickstart" })
     );
-    const gotchasText = getTextContent(await client.readResource({ uri: "delegate-claude:///gotchas" }));
+    const gotchasText = getTextContent(
+      await client.readResource({ uri: "delegate-claude:///gotchas" })
+    );
     const compatText = getTextContent(
       await client.readResource({ uri: "delegate-claude:///compat-report" })
     );
     const compat = JSON.parse(compatText || "{}");
 
-    assert(quickstartText.includes("Persist these client-side"), "quickstart missing stored-state guidance");
+    assert(
+      quickstartText.includes("Persist these client-side"),
+      "quickstart missing stored-state guidance"
+    );
     assert(quickstartText.includes("nextCursor"), "quickstart missing nextCursor guidance");
     assert(
       quickstartText.includes("respond_permission"),
@@ -100,8 +103,8 @@ async function main() {
     assert(gotchasText.includes("Remedy:"), "gotchas missing remedy guidance");
     assert(Array.isArray(compat.guidance), "compat-report guidance missing");
     assert(
-      compat.guidance.some((item) =>
-        typeof item === "string" && item.includes("README-level documentation is visible")
+      compat.guidance.some(
+        (item) => typeof item === "string" && item.includes("README-level documentation is visible")
       ),
       "compat-report missing model-visibility guidance"
     );
@@ -113,9 +116,9 @@ async function main() {
           toolCount: listed.tools.length,
           resourceCount: resources.resources.length,
           identity: {
-            package: packageJson.name,
-            executable: "delegate-claude",
             server: serverVersion?.name,
+            title: serverVersion?.title,
+            websiteUrl: serverVersion?.websiteUrl,
           },
           checked: {
             toolDescriptions: ["claude_code", "claude_code_check"],
@@ -132,6 +135,8 @@ async function main() {
 }
 
 main().catch((error) => {
-  process.stderr.write(`${error instanceof Error ? error.stack ?? error.message : String(error)}\n`);
+  process.stderr.write(
+    `${error instanceof Error ? (error.stack ?? error.message) : String(error)}\n`
+  );
   process.exitCode = 1;
 });

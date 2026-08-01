@@ -3,6 +3,7 @@ import path from "node:path";
 import { ErrorCode } from "../types.js";
 import { normalizeWindowsPathLike } from "./normalize-windows-path.js";
 
+// Mirrors SDK 0.3.220 sdk.mjs script-spawn detection; re-audit this list on every SDK upgrade.
 const SDK_SCRIPT_EXTENSIONS = [".js", ".mjs", ".tsx", ".ts", ".jsx"] as const;
 
 function isSdkScript(filePath: string): boolean {

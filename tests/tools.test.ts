@@ -70,6 +70,29 @@ function successStream(sessionId: string): QueryReturn {
   })() as unknown as QueryReturn;
 }
 
+function initializedSuccessStream(sessionId: string): QueryReturn {
+  return (async function* () {
+    yield {
+      type: "system",
+      subtype: "init",
+      session_id: sessionId,
+      uuid: `u-${sessionId}-init`,
+      cwd: "/tmp",
+      tools: ["Read"],
+      claude_code_version: "x",
+      model: "m",
+      permissionMode: "default",
+      apiKeySource: "env",
+      mcp_servers: [],
+      slash_commands: [],
+      output_style: "",
+      skills: [],
+      plugins: [],
+    };
+    yield* successStream(sessionId);
+  })() as unknown as QueryReturn;
+}
+
 describe("executeClaudeCode (async)", () => {
   let manager: SessionManager;
   let toolCache: ToolDiscoveryCache;
@@ -153,43 +176,7 @@ describe("executeClaudeCode (async)", () => {
   it("should pass only the explicitly selected Claude Code executable", async () => {
     const fixture = createExecutableFixture("claude");
     try {
-      mockQuery.mockReturnValue(
-        (async function* () {
-          yield {
-            type: "system",
-            subtype: "init",
-            session_id: "sess-explicit-exec",
-            uuid: "u-explicit-exec-init",
-            cwd: "/tmp",
-            tools: ["Read"],
-            claude_code_version: "x",
-            model: "m",
-            permissionMode: "default",
-            apiKeySource: "env",
-            mcp_servers: [],
-            slash_commands: [],
-            output_style: "",
-            skills: [],
-            plugins: [],
-          };
-          yield {
-            type: "result",
-            subtype: "success",
-            result: "ok",
-            duration_ms: 1,
-            num_turns: 1,
-            total_cost_usd: 0,
-            is_error: false,
-            uuid: "u-explicit-exec-res",
-            session_id: "sess-explicit-exec",
-            duration_api_ms: 1,
-            stop_reason: null,
-            usage: {},
-            modelUsage: {},
-            permission_denials: [],
-          };
-        })() as unknown as QueryReturn
-      );
+      mockQuery.mockReturnValue(initializedSuccessStream("sess-explicit-exec"));
 
       const result = await executeClaudeCode(
         {
@@ -601,6 +588,38 @@ describe("executeClaudeCodeReply (async)", () => {
     }
   });
 
+  it("should pass the resolved explicit executable to disk-resume query and session state", async () => {
+    vi.stubEnv("CLAUDE_CODE_MCP_ALLOW_DISK_RESUME", "1");
+    vi.stubEnv("CLAUDE_CODE_MCP_RESUME_SECRET", "test-secret");
+    const fixture = createExecutableFixture("claude-disk");
+    try {
+      mockQuery.mockReturnValue(successStream("disk-explicit"));
+
+      const res = await executeClaudeCodeReply(
+        {
+          sessionId: "disk-explicit",
+          prompt: "Hi",
+          diskResumeConfig: {
+            cwd: "/tmp",
+            resumeToken: computeResumeToken("disk-explicit", "test-secret"),
+            pathToClaudeCodeExecutable: fixture.filePath,
+          },
+        },
+        manager,
+        toolCache
+      );
+
+      expect(res.status).toBe("running");
+      const resolvedExecutable = path.normalize(fixture.filePath);
+      const call = mockQuery.mock.calls[0]![0] as { options: Record<string, unknown> };
+      expect(call.options.pathToClaudeCodeExecutable).toBe(resolvedExecutable);
+      expect(manager.get("disk-explicit")?.pathToClaudeCodeExecutable).toBe(resolvedExecutable);
+    } finally {
+      rmSync(fixture.dir, { recursive: true, force: true });
+      vi.unstubAllEnvs();
+    }
+  });
+
   it("should reject disk resume when resumeToken is missing", async () => {
     vi.stubEnv("CLAUDE_CODE_MCP_ALLOW_DISK_RESUME", "1");
     vi.stubEnv("CLAUDE_CODE_MCP_RESUME_SECRET", "test-secret");
@@ -705,6 +724,84 @@ describe("executeClaudeCodeReply (async)", () => {
     const call = mockQuery.mock.calls[0]![0] as { options: Record<string, unknown> };
     expect(call.options).not.toHaveProperty("pathToClaudeCodeExecutable");
     expect(manager.get("idle-default-exec")!.pathToClaudeCodeExecutable).toBeUndefined();
+  });
+
+  it("should reject an in-memory reply after its explicit executable is removed", async () => {
+    const fixture = createExecutableFixture("claude-removed");
+    try {
+      mockQuery.mockReturnValue(initializedSuccessStream("idle-removed-exec"));
+      const start = await executeClaudeCode(
+        {
+          prompt: "Start",
+          advanced: { pathToClaudeCodeExecutable: fixture.filePath },
+        },
+        manager,
+        "/tmp",
+        toolCache
+      );
+      expect(start.status).toBe("running");
+      await waitUntil(() => manager.get("idle-removed-exec")?.status === "idle");
+
+      rmSync(fixture.dir, { recursive: true, force: true });
+      mockQuery.mockClear();
+      const reply = await executeClaudeCodeReply(
+        { sessionId: "idle-removed-exec", prompt: "Continue" },
+        manager,
+        toolCache
+      );
+
+      expect(reply.status).toBe("error");
+      if (reply.status === "error") expect(reply.error).toContain("INVALID_ARGUMENT");
+      expect(mockQuery).not.toHaveBeenCalled();
+    } finally {
+      rmSync(fixture.dir, { recursive: true, force: true });
+    }
+  });
+
+  it("should reject disk resume after its explicit executable is removed", async () => {
+    vi.stubEnv("CLAUDE_CODE_MCP_ALLOW_DISK_RESUME", "1");
+    vi.stubEnv("CLAUDE_CODE_MCP_RESUME_SECRET", "test-secret");
+    const fixture = createExecutableFixture("claude-disk-removed");
+    try {
+      mockQuery.mockReturnValue(initializedSuccessStream("disk-removed-exec"));
+      const start = await executeClaudeCode(
+        {
+          prompt: "Start",
+          advanced: { pathToClaudeCodeExecutable: fixture.filePath },
+        },
+        manager,
+        "/tmp",
+        toolCache
+      );
+      expect(start.status).toBe("running");
+      if (start.status !== "running") throw new Error("expected a running session");
+      await waitUntil(() => manager.get("disk-removed-exec")?.status === "idle");
+
+      manager.destroy();
+      manager = new SessionManager();
+      rmSync(fixture.dir, { recursive: true, force: true });
+      mockQuery.mockClear();
+      const reply = await executeClaudeCodeReply(
+        {
+          sessionId: "disk-removed-exec",
+          prompt: "Continue",
+          diskResumeConfig: {
+            cwd: "/tmp",
+            resumeToken: start.resumeToken,
+            pathToClaudeCodeExecutable: fixture.filePath,
+          },
+        },
+        manager,
+        toolCache
+      );
+
+      expect(reply.status).toBe("error");
+      if (reply.status === "error") expect(reply.error).toContain("INVALID_ARGUMENT");
+      expect(mockQuery).not.toHaveBeenCalled();
+    } finally {
+      rmSync(fixture.dir, { recursive: true, force: true });
+      vi.unstubAllEnvs();
+    }
   });
 
   it("should pass effort/thinking overrides to query() and persist them on non-fork replies", async () => {

@@ -12,6 +12,7 @@
 - Use SDK 0.3.220's bundled Claude Code by default, validate an explicit `pathToClaudeCodeExecutable` before starting a query, and remove local command discovery and server-level executable overrides.
 - Remove configurable model substitution so an unavailable requested model fails without trying another model.
 - Rename the npm package, executable, server identity, repository metadata, and resource scheme to `delegate-claude` while preserving the four MCP tool names.
+- Revalidate stored explicit Claude Code executables before every reply and keep only the validated path in disk-resume session state.
 
 ### Documentation
 
@@ -23,6 +24,7 @@
 ### Tests
 
 - Add a reusable stdio metadata integration script to verify agent-visible tool/resource guidance through a real MCP client transport.
+- Verify npm package identity, executable mapping, and required license notices from dry-run metadata and the generated tarball.
 
 ## 2.5.0 (2026-02-27)
 

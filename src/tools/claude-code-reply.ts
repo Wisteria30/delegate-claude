@@ -162,19 +162,26 @@ function toStartError(
   };
 }
 
-function buildOptionsFromDiskResume(dr: DiskResumeConfig): ReturnType<typeof buildOptions> {
+function buildOptionsFromDiskResume(dr: DiskResumeConfig): {
+  options: ReturnType<typeof buildOptions>;
+  explicitClaudeExecutable: string | undefined;
+} {
   if (dr.cwd === undefined || typeof dr.cwd !== "string" || dr.cwd.trim() === "") {
     throw new Error(`Error [${ErrorCode.INVALID_ARGUMENT}]: cwd must be provided for disk resume.`);
   }
   const normalizedCwd = normalizeAndAssertCwd(dr.cwd, "disk resume cwd");
-  return buildOptions({
-    ...dr,
-    cwd: normalizedCwd,
-    pathToClaudeCodeExecutable:
-      dr.pathToClaudeCodeExecutable !== undefined
-        ? resolveExplicitClaudeExecutable(dr.pathToClaudeCodeExecutable, normalizedCwd)
-        : undefined,
-  } as Parameters<typeof buildOptions>[0]);
+  const explicitClaudeExecutable =
+    dr.pathToClaudeCodeExecutable !== undefined
+      ? resolveExplicitClaudeExecutable(dr.pathToClaudeCodeExecutable, normalizedCwd)
+      : undefined;
+  return {
+    options: buildOptions({
+      ...dr,
+      cwd: normalizedCwd,
+      pathToClaudeCodeExecutable: explicitClaudeExecutable,
+    } as Parameters<typeof buildOptions>[0]),
+    explicitClaudeExecutable,
+  };
 }
 
 export async function executeClaudeCodeReply(
@@ -233,7 +240,7 @@ export async function executeClaudeCodeReply(
 
     try {
       const abortController = new AbortController();
-      const options = buildOptionsFromDiskResume(dr);
+      const { options, explicitClaudeExecutable } = buildOptionsFromDiskResume(dr);
       if (input.effort !== undefined) options.effort = input.effort;
       if (input.thinking !== undefined) options.thinking = input.thinking;
 
@@ -246,9 +253,7 @@ export async function executeClaudeCodeReply(
           (options.additionalDirectories as string[] | undefined) ??
           (rest as OptionSource).additionalDirectories,
         debugFile: (options.debugFile as string | undefined) ?? (rest as OptionSource).debugFile,
-        pathToClaudeCodeExecutable:
-          (options.pathToClaudeCodeExecutable as string | undefined) ??
-          (rest as OptionSource).pathToClaudeCodeExecutable,
+        pathToClaudeCodeExecutable: explicitClaudeExecutable,
         effort: input.effort ?? (rest as OptionSource).effort,
         thinking: input.thinking ?? (rest as OptionSource).thinking,
       };

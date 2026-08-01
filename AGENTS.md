@@ -112,6 +112,7 @@ If you need to compare two versions without changing the workspace yet:
 For each upgraded runtime dependency:
 
 - **Options surface:** compare SDK `Options` fields to `src/utils/build-options.ts` (`OptionSource` + copy logic).
+- **Executable launch:** compare SDK `sdk.mjs` script-spawn detection to `SDK_SCRIPT_EXTENSIONS` in `src/utils/claude-executable.ts`.
 - **Message surface:** compare SDK `SDKMessage` union (new `type`/`subtype`) to `src/tools/query-consumer.ts` mapping.
 - **Tool discovery:** if `system/init.tools` adds new tool names, decide whether to add descriptions to `src/tools/tool-discovery.ts`.
 - **Policy filters:** if new progress events appear, confirm `claude_code_check` filtering rules in `src/tools/claude-code-check.ts`.
