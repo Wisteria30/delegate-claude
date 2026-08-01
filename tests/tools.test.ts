@@ -232,43 +232,7 @@ describe("executeClaudeCode (async)", () => {
   });
 
   it("should pass option fields through to query()", async () => {
-    mockQuery.mockReturnValue(
-      (async function* () {
-        yield {
-          type: "system",
-          subtype: "init",
-          session_id: "sess-opts",
-          uuid: "u1",
-          cwd: "/tmp",
-          tools: ["Read"],
-          claude_code_version: "x",
-          model: "m",
-          permissionMode: "default",
-          apiKeySource: "env",
-          mcp_servers: [],
-          slash_commands: [],
-          output_style: "",
-          skills: [],
-          plugins: [],
-        };
-        yield {
-          type: "result",
-          subtype: "success",
-          result: "ok",
-          duration_ms: 1,
-          num_turns: 1,
-          total_cost_usd: 0,
-          is_error: false,
-          uuid: "u2",
-          session_id: "sess-opts",
-          duration_api_ms: 1,
-          stop_reason: null,
-          usage: {},
-          modelUsage: {},
-          permission_denials: [],
-        };
-      })() as unknown as QueryReturn
-    );
+    mockQuery.mockReturnValue(initializedSuccessStream("sess-opts"));
 
     await executeClaudeCode(
       {
@@ -508,6 +472,21 @@ describe("executeClaudeCodeReply (async)", () => {
     manager.destroy();
   });
 
+  /** Starts an idle session pinned to `filePath`, then clears the query mock for the reply. */
+  async function startIdleWithExplicitExecutable(sessionId: string, filePath: string) {
+    mockQuery.mockReturnValue(initializedSuccessStream(sessionId));
+    const start = await executeClaudeCode(
+      { prompt: "Start", advanced: { pathToClaudeCodeExecutable: filePath } },
+      manager,
+      "/tmp",
+      toolCache
+    );
+    if (start.status !== "running") throw new Error("expected a running session");
+    await waitUntil(() => manager.get(sessionId)?.status === "idle");
+    mockQuery.mockClear();
+    return start;
+  }
+
   it("should keep only the latest terminal result event across multiple replies", async () => {
     manager.create({ sessionId: "sess-multi", cwd: "/tmp", permissionMode: "default" });
     manager.update("sess-multi", { status: "idle" });
@@ -568,26 +547,7 @@ describe("executeClaudeCodeReply (async)", () => {
     vi.stubEnv("CLAUDE_CODE_MCP_ALLOW_DISK_RESUME", "1");
     vi.stubEnv("CLAUDE_CODE_MCP_RESUME_SECRET", "test-secret");
     try {
-      mockQuery.mockReturnValue(
-        (async function* () {
-          yield {
-            type: "result",
-            subtype: "success",
-            result: "ok",
-            duration_ms: 1,
-            num_turns: 1,
-            total_cost_usd: 0,
-            is_error: false,
-            uuid: "u2",
-            session_id: "disk-1",
-            duration_api_ms: 1,
-            stop_reason: null,
-            usage: {},
-            modelUsage: {},
-            permission_denials: [],
-          };
-        })() as unknown as QueryReturn
-      );
+      mockQuery.mockReturnValue(successStream("disk-1"));
 
       const res = await executeClaudeCodeReply(
         {
@@ -770,21 +730,9 @@ describe("executeClaudeCodeReply (async)", () => {
   it("should reject an in-memory reply after its explicit executable is removed", async () => {
     const fixture = createExecutableFixture("claude-removed");
     try {
-      mockQuery.mockReturnValue(initializedSuccessStream("idle-removed-exec"));
-      const start = await executeClaudeCode(
-        {
-          prompt: "Start",
-          advanced: { pathToClaudeCodeExecutable: fixture.filePath },
-        },
-        manager,
-        "/tmp",
-        toolCache
-      );
-      expect(start.status).toBe("running");
-      await waitUntil(() => manager.get("idle-removed-exec")?.status === "idle");
+      await startIdleWithExplicitExecutable("idle-removed-exec", fixture.filePath);
 
       rmSync(fixture.dir, { recursive: true, force: true });
-      mockQuery.mockClear();
       const reply = await executeClaudeCodeReply(
         { sessionId: "idle-removed-exec", prompt: "Continue" },
         manager,
@@ -804,24 +752,11 @@ describe("executeClaudeCodeReply (async)", () => {
     vi.stubEnv("CLAUDE_CODE_MCP_RESUME_SECRET", "test-secret");
     const fixture = createExecutableFixture("claude-disk-removed");
     try {
-      mockQuery.mockReturnValue(initializedSuccessStream("disk-removed-exec"));
-      const start = await executeClaudeCode(
-        {
-          prompt: "Start",
-          advanced: { pathToClaudeCodeExecutable: fixture.filePath },
-        },
-        manager,
-        "/tmp",
-        toolCache
-      );
-      expect(start.status).toBe("running");
-      if (start.status !== "running") throw new Error("expected a running session");
-      await waitUntil(() => manager.get("disk-removed-exec")?.status === "idle");
+      const start = await startIdleWithExplicitExecutable("disk-removed-exec", fixture.filePath);
 
       manager.destroy();
       manager = new SessionManager();
       rmSync(fixture.dir, { recursive: true, force: true });
-      mockQuery.mockClear();
       const reply = await executeClaudeCodeReply(
         {
           sessionId: "disk-removed-exec",
