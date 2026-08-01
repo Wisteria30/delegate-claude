@@ -80,8 +80,10 @@
 
 升级时以本地依赖安装后的类型定义为准：
 
-- Claude Agent SDK：`node_modules/@anthropic-ai/claude-agent-sdk/sdk.d.ts`
-- MCP SDK（必要时）：`node_modules/@modelcontextprotocol/sdk`
+- Claude Agent SDK `0.3.220`：`node_modules/@anthropic-ai/claude-agent-sdk/sdk.d.ts`
+- Anthropic SDK `0.115.0`（满足 Agent SDK 的 `>=0.93.0` peer 条件，并由直接依赖的 `^0.115.0` 上限约束）
+- MCP SDK `1.30.0`：`node_modules/@modelcontextprotocol/sdk`（满足 Agent SDK 的 `^1.29.0` peer 条件）
+- zod `4.3.6`（满足两个 SDK 的 zod 4 peer 条件）
 
 补充来源：
 
@@ -98,6 +100,7 @@
 
 - `Options` 字段全集
 - `CanUseTool` 回调签名与行为
+- `CanUseTool` 元数据要求 SDK control `requestId`；仅当 consumer 已通过带外通道发送 control response 时，回调才可返回 `null`
 - `PermissionMode` 枚举
 - `SDKMessage` / `SDKResultMessage` / `SDKSystemMessage` 联合类型
 - `query()` 流式语义（init、assistant、progress、result、error）
@@ -272,7 +275,7 @@ running <-> waiting_permission -> idle | error | cancelled
    - `src/session/manager.ts`（状态与权限请求生命周期）
    - `src/types.ts`（共享类型与枚举）
 5. 更新文档与变更记录：`README.md`、`docs/DESIGN.md`、`AGENTS.md`、`CHANGELOG.md`
-6. 运行检查：`typecheck` / `lint` / `test` / `format:check`
+6. 运行检查：`mise exec -- task ci`
 
 ### 升级验收标准
 

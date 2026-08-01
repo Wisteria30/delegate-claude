@@ -418,6 +418,7 @@ describe("executeClaudeCode (async)", () => {
           {
             signal: new AbortController().signal,
             toolUseID: "tu1",
+            requestId: "req-tool",
             decisionReason: "needs permission",
           }
         );

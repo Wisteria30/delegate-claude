@@ -4,7 +4,8 @@
 
 ### Improvements
 
-- Upgrade `@anthropic-ai/claude-agent-sdk` to `^0.2.81` and align exposed option passthrough with current SDK fields (`toolConfig`, `agentProgressSummaries`, `settings`).
+- Pin `@anthropic-ai/claude-agent-sdk` to `0.3.220`, bound its Anthropic SDK peer at the compatible `^0.115.0` line, update the direct MCP SDK dependency to `^1.29.0`, and align test callback fixtures with the authoritative SDK types.
+- Pin Node.js 22.23.1 and Task 3.52.0 with mise, and make `Taskfile.yml` the shared local, hook, CI, and publish quality-command source.
 - Expand SDK stream/event mapping for `rate_limit_event`, `system/api_retry`, `system/local_command_output`, `system/elicitation_complete`, `system/compact_boundary`, and partial `stream_event` output.
 - Preserve newer SDK metadata in session/results, including `fastModeState` and richer permission prompt labels (`title`, `displayName`).
 - Prefer SDK permission `suggestions` for `allow_for_session` responses and sync session metadata from `system/init` (for example actual model / permission mode).
@@ -13,13 +14,13 @@
 ### Documentation
 
 - Add OpenCode-specific setup and usage guidance, including local MCP config examples and async polling recommendations.
-- Sync README and DESIGN option/message matrices with the current SDK 0.2.81 surface.
+- Sync maintainer and user documentation with the pinned toolchain and SDK 0.3.220 interface baseline.
 - Add usage reminders in model-visible guidance: long Claude Code runs are normal, and follow-up questions should use `claude_code_reply` with the existing session.
 - Separate agent-visible MCP guidance from repo-only documentation, and move more protocol-critical rules into tool descriptions and resources.
 
 ### Tests
 
-- Add a reusable stdio metadata smoke script to verify agent-visible tool/resource guidance through a real MCP client transport.
+- Add a reusable stdio metadata integration script to verify agent-visible tool/resource guidance through a real MCP client transport.
 
 ## 2.5.0 (2026-02-27)
 

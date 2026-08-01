@@ -29,7 +29,10 @@ async function main() {
     });
   }
 
-  const client = new Client({ name: "stdio-metadata-smoke", version: "0.0.0" }, { capabilities: {} });
+  const client = new Client(
+    { name: "stdio-metadata-integration", version: "0.0.0" },
+    { capabilities: {} }
+  );
 
   try {
     await client.connect(transport);
@@ -48,8 +51,12 @@ async function main() {
       "claude_code description lost async result guidance"
     );
     assert(
-      claudeCodeCheck?.description?.includes("respond_user_input is not supported"),
-      "claude_code_check description lost unsupported flow guidance"
+      claudeCode?.description?.includes("respond_user_input is not supported"),
+      "claude_code description lost unsupported flow guidance"
+    );
+    assert(
+      claudeCodeCheck?.description?.includes("persist nextCursor"),
+      "claude_code_check description lost cursor guidance"
     );
 
     const resources = await client.listResources();

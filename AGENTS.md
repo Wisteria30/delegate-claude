@@ -4,7 +4,7 @@ This repository is a TypeScript (ESM) MCP server wrapping Claude Agent SDK / Cla
 Package: `@leo000001/claude-code-mcp`.
 Assumption: MCP server and client run on the same machine (same platform), via stdio.
 
-> Last Updated: 2026-02-27
+> Last Updated: 2026-08-01
 
 ## Document Boundary (Must Read)
 
@@ -64,11 +64,8 @@ When dependency interfaces change (`@anthropic-ai/claude-agent-sdk`, `@modelcont
    - `docs/DESIGN.md`
    - `AGENTS.md`
    - `CHANGELOG.md`
-5. Run full checks:
-   - `npm run typecheck`
-   - `npm run lint`
-   - `npm test`
-   - `npm run format:check`
+5. Run the full check from the repository-pinned toolchain:
+   - `mise exec -- task ci`
 
 ## Full Maintenance & Dependency Update Workflow
 
@@ -84,10 +81,10 @@ This section is the authoritative end-to-end workflow for updating dependencies 
 
 ### 1) Detect Updates (Local, Reproducible)
 
-Run:
+Run through the pinned toolchain:
 
-- `npm outdated` (top-level)
-- `npm outdated --all` (transitive signal only; don't chase majors unless needed)
+- `mise exec -- npm outdated` (top-level)
+- `mise exec -- npm outdated --all` (transitive signal only; don't chase majors unless needed)
 
 Record:
 
@@ -128,7 +125,7 @@ For each upgraded runtime dependency:
 
 #### 4.2 Refresh the lockfile
 
-- Run `npm install` to update `package-lock.json`.
+- Run `mise exec -- npm install` to update `package-lock.json`.
 
 #### 4.3 Close the code loop
 
@@ -151,13 +148,10 @@ For each upgraded runtime dependency:
 
 ### 5) Verify (Definition of Done)
 
-Run (in this order):
+Run:
 
-1. `npm run typecheck`
-2. `npm run lint`
-3. `npm test`
-4. `npm run format:check`
-5. `npm audit` (optional; if you apply `npm audit fix`, re-run 1-4 and commit the lockfile change)
+1. `mise exec -- task ci`
+2. `mise exec -- npm audit` (report findings; do not apply fixes without explicit approval)
 
 Also verify:
 
@@ -205,32 +199,31 @@ If a changed SDK field or message type is not reflected in at least one test, tr
 
 ## Quick Commands
 
-- Install deps: `npm install`
-- Build: `npm run build`
-- Dev watch: `npm run dev`
-- Start server: `npm start`
-- Typecheck: `npm run typecheck`
-- Test: `npm test`
-- Test watch: `npm run test:watch`
-- Lint: `npm run lint`
-- Format: `npm run format`
-- Format check: `npm run format:check`
+- Install the pinned tools: `mise install`
+- Full local/CI gate: `mise exec -- task ci`
+- Install locked dependencies: `mise exec -- task install`
+- Build: `mise exec -- task build`
+- Typecheck: `mise exec -- task typecheck`
+- Test: `mise exec -- task test`
+- Lint: `mise exec -- task lint`
+- Format check: `mise exec -- task format:check`
+- Stdio integration: `mise exec -- task test:stdio`
+- Dev watch: `mise exec -- npm run dev`
+- Test watch: `mise exec -- npm run test:watch`
+- Format source: `mise exec -- npm run format`
+- Start server: `mise exec -- npm start`
 
 ## Git / PR Workflow
 
-- Base branch: `master`
+- Base branch: `main`
 - Keep commits focused and non-interactive
-- Before commit/PR, run:
-  - `npm run typecheck`
-  - `npm run lint`
-  - `npm test`
-  - `npm run format:check`
+- Before commit/PR, run `mise exec -- task ci`.
 
-Pre-commit hook (`.husky/pre-commit`) runs:
+Pre-commit hook (`.husky/pre-commit`) runs `mise exec -- task pre-commit`, which performs:
 
-1. `npx lint-staged` (`prettier --write` + `eslint --fix` for staged `*.ts`)
-2. `npm run typecheck`
-3. `npm test`
+1. `npx --no-install lint-staged` (`prettier --write` + `eslint --fix` for staged `*.ts`)
+2. Type checking
+3. Unit tests
 
 ## Project Layout (Condensed)
 
@@ -326,9 +319,9 @@ Minimum suites to touch when relevant:
 ## Build Artifacts / Publishing / CI
 
 - Edit `src/`, not `dist/`
-- `npm run prepublishOnly` triggers build
+- `npm publish` triggers `prepublishOnly`, which runs `task build` (requires `task` on `PATH`; CI provides it via `mise exec -- npm publish`)
 - Publish is public scoped package
-- CI runs typecheck + lint + format:check + test + build (Node 18/20/22)
+- CI installs Node 22.23.1 and Task 3.52.0 from `mise.toml`, then runs `task ci` on Linux, Windows, and macOS.
 
 ## Windows Notes
 

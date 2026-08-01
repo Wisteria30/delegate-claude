@@ -1179,6 +1179,7 @@ describe("consumeQuery", () => {
           {
             signal: new AbortController().signal,
             toolUseID: "tu-clamp",
+            requestId: "req-clamp",
             decisionReason: "needs permission",
           }
         );
@@ -1272,6 +1273,7 @@ describe("consumeQuery", () => {
           {
             signal: new AbortController().signal,
             toolUseID: "tu1",
+            requestId: "req-permission",
             decisionReason: "needs permission",
           }
         );
@@ -1365,9 +1367,9 @@ describe("consumeQuery", () => {
         const result = await options.canUseTool("Bash", toolInput, {
           signal: new AbortController().signal,
           toolUseID: "tu-allowed",
+          requestId: "req-allowed",
         });
-        expect(result.behavior).toBe("allow");
-        expect((result as { updatedInput?: unknown }).updatedInput).toEqual(toolInput);
+        expect(result).toEqual({ behavior: "allow", updatedInput: toolInput });
 
         yield {
           type: "result",
@@ -1448,6 +1450,7 @@ describe("consumeQuery", () => {
           {
             signal: new AbortController().signal,
             toolUseID: "tu-disallowed",
+            requestId: "req-disallowed",
           }
         );
         expect(result).toEqual({
@@ -1534,6 +1537,7 @@ describe("consumeQuery", () => {
           {
             signal: new AbortController().signal,
             toolUseID: "tu-strict-allow",
+            requestId: "req-strict-allow",
           }
         );
         expect(result).toEqual({
@@ -1622,6 +1626,7 @@ describe("consumeQuery", () => {
           {
             signal: new AbortController().signal,
             toolUseID: "tu-blocked-path",
+            requestId: "req-blocked-path",
             blockedPath: "/tmp/file.txt",
           }
         );
@@ -1721,6 +1726,7 @@ describe("consumeQuery", () => {
           {
             signal: new AbortController().signal,
             toolUseID: "tu-nb",
+            requestId: "req-notebook",
             decisionReason: "needs permission",
           }
         );
@@ -1813,6 +1819,7 @@ describe("consumeQuery", () => {
           {
             signal: new AbortController().signal,
             toolUseID: "tu-home-path",
+            requestId: "req-home-path",
           }
         );
         expect(result).toEqual({
@@ -2407,10 +2414,11 @@ describe("consumeQuery error paths", () => {
           {
             signal: preAbortedAc.signal,
             toolUseID: "tu1",
+            requestId: "req-pre-aborted",
           }
         );
         // Should get a deny result immediately (not after 60s timeout)
-        expect(result.behavior).toBe("deny");
+        expect(result?.behavior).toBe("deny");
 
         yield {
           type: "result",
@@ -2497,10 +2505,11 @@ describe("integration: consumeQuery + executeClaudeCodeCheck respond_permission"
           {
             signal: new AbortController().signal,
             toolUseID: "tu-e2e",
+            requestId: "req-e2e",
             decisionReason: "needs approval",
           }
         );
-        expect(result.behavior).toBe("allow");
+        expect(result?.behavior).toBe("allow");
 
         yield {
           type: "result",

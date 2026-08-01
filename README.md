@@ -38,6 +38,7 @@ See `CHANGELOG.md` for release history.
 ## Prerequisites
 
 - **Node.js >= 18** is required.
+- **Building from source requires [mise](https://mise.jdx.dev/)** — `mise.toml` installs the repository's exact Node.js and Task versions.
 - **Same-platform deployment** — this MCP server is designed to run on the same machine as the MCP client. It communicates via stdio (child process), reads local Claude configuration files from `~/.claude/`, and accesses the local file system directly. Remote deployment is not supported.
 
 This MCP server uses the [`@anthropic-ai/claude-agent-sdk`](https://www.npmjs.com/package/@anthropic-ai/claude-agent-sdk) package, which **bundles its own Claude Code CLI** (`cli.js`). When no explicit `pathToClaudeCodeExecutable` is provided, this server now prefers a detected local `claude` command, then `claude-internal`, and falls back to the SDK-bundled CLI if neither is found.
@@ -122,9 +123,10 @@ Codex supports both user-level (`~/.codex/config.toml`) and project-level (`.cod
 ```bash
 git clone https://github.com/xihuai18/claude-code-mcp.git
 cd claude-code-mcp
-npm install
-npm run build
-npm start
+mise install
+mise exec -- task install
+mise exec -- task build
+mise exec -- npm start
 ```
 
 ## Tools
@@ -603,30 +605,34 @@ setx CLAUDE_CODE_MCP_RESUME_SECRET change-me
 ## Development
 
 ```bash
-npm install          # Install dependencies
-npm run build        # Build with tsup
-npm run typecheck    # Type check with tsc
-npm test             # Run tests with vitest
-npm run dev          # Watch mode build
+mise install                # Install Node 22.23.1 and Task 3.52.0
+mise exec -- task ci        # Run the complete local/CI quality gate
+mise exec -- task build     # Build with tsup
+mise exec -- task test      # Run unit tests with Vitest
+mise exec -- npm run dev    # Watch mode build
 ```
+
+`Taskfile.yml` is the source of truth for quality commands. `task ci` installs the locked npm
+dependencies, then checks formatting, lint, types, and unit tests, builds the package, and verifies
+its stdio MCP transport.
 
 ### E2E regression commands
 
 ```bash
 # Run cancel->poll regression loop (single mode)
-npm run e2e:stdio:cancel
+mise exec -- npm run e2e:stdio:cancel
 
 # Run waiting_permission + cancel regression loop
-npm run e2e:stdio:cancel:wp
+mise exec -- npm run e2e:stdio:cancel:wp
 
 # Run both modes and output one summary report
-npm run e2e:stdio:runner
+mise exec -- npm run e2e:stdio:runner
 ```
 
 ### E2E notes (Codex and other clients)
 
 - Some clients do not expose `tools/list` directly in the chat loop. In those clients, treat "tool is callable" as the primary discovery signal, and use `tools/list` only when available.
-- `allowedTools: ["Read", "Write"]` does not guarantee the model will never attempt `Bash`. For deterministic smoke tests, add `disallowedTools: ["Bash"]` and state "do not use Bash" in the prompt.
+- `allowedTools: ["Read", "Write"]` does not guarantee the model will never attempt `Bash`. For deterministic basic checks, add `disallowedTools: ["Bash"]` and state "do not use Bash" in the prompt.
 - For `claude_code_session(action="get", includeSensitive=true)`, only assert fields that were actually configured. Optional fields that were never set may be omitted.
 - If a client reports `Transport closed` during E2E cleanup, reconnect the MCP server first, then run `claude_code_session(action="list")` and cancel any remaining `running` / `waiting_permission` sessions.
 

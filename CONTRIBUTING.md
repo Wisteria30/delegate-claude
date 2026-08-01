@@ -7,13 +7,15 @@ Thanks for your interest in contributing to claude-code-mcp!
 ```bash
 git clone https://github.com/xihuai18/claude-code-mcp.git
 cd claude-code-mcp
-npm install
+mise install
+mise exec -- task install
 ```
 
 ### Local Environment Requirements
 
-- Node.js `>=18` (Node 20/22 recommended for local development)
-- npm (bundled with Node)
+- mise
+- Node.js 22.23.1 and Task 3.52.0 (installed from `mise.toml`)
+- npm (bundled with the pinned Node.js version)
 - Windows contributors: install **Git for Windows** (`bash.exe`) for Claude Code CLI compatibility
 - Optional: set `CLAUDE_CODE_GIT_BASH_PATH` explicitly when testing MCP clients launched outside your terminal environment
 
@@ -23,12 +25,9 @@ npm install
 2. Make your changes
 3. Ensure all checks pass:
    ```bash
-   npm run typecheck    # TypeScript type checking
-   npm run lint         # ESLint
-   npm test             # Vitest
-   npm run format:check # Prettier
+   mise exec -- task ci
    ```
-4. Commit your changes (pre-commit hooks will run lint-staged + typecheck + test)
+4. Commit your changes (the pre-commit hook runs the staged-file, type, and unit-test checks through Task)
 5. Open a Pull Request against the default branch
 
 ## Code Style
@@ -54,8 +53,8 @@ npm install
 ## Release Checklist
 
 1. Update `CHANGELOG.md` with the upcoming version and confirm `package.json` reflects that version.
-2. Run `npm run format:check`, `npm run lint`, `npm run typecheck` (now covers `src` + `tests`), and `npm test` to prove the working tree is clean.
-3. Build the bundle (`npm run build`) and verify `dist/` contains the expected entry points.
+2. Run `mise exec -- task ci` to prove the working tree passes the canonical quality gate.
+3. Verify the generated `dist/` contains the expected entry points.
 4. Refresh any documentation (README/CONTRIBUTING/docs) that describe public behavior or APIs touched by the release.
 5. Ensure `NOTICE.md` lists the third-party components bundled in the release and contains links or pointers to their licenses.
 6. Double-check `files`, `bin`, and other package metadata so the published package only ships the intended assets.
