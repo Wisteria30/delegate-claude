@@ -1,4 +1,5 @@
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import { existsSync, statSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
@@ -10,6 +11,12 @@ vi.mock("node:fs", () => ({
 import { normalizeAndAssertWorkingDirectory } from "../src/utils/working-directory.js";
 
 describe("normalizeAndAssertWorkingDirectory", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.mocked(existsSync).mockReturnValue(true);
+    vi.mocked(statSync).mockReturnValue({ isDirectory: () => true } as ReturnType<typeof statSync>);
+  });
+
   it("preserves start paths and resolves stored paths for both reply call sites", () => {
     const nativeTmp = process.platform === "win32" ? "C:\\native-tmp" : "/native-tmp";
     const tmpdir = vi.spyOn(os, "tmpdir").mockReturnValue(nativeTmp);
@@ -25,5 +32,28 @@ describe("normalizeAndAssertWorkingDirectory", () => {
     } finally {
       tmpdir.mockRestore();
     }
+  });
+
+  it("preserves validation order and exact error classifications", () => {
+    vi.mocked(existsSync).mockReturnValue(false);
+    expect(() => normalizeAndAssertWorkingDirectory("/missing", "cwd", "preserve")).toThrow(
+      "Error [INVALID_ARGUMENT]: cwd path does not exist: /missing"
+    );
+    expect(statSync).not.toHaveBeenCalled();
+
+    vi.mocked(existsSync).mockReturnValue(true);
+    vi.mocked(statSync).mockReturnValue({ isDirectory: () => false } as ReturnType<
+      typeof statSync
+    >);
+    expect(() => normalizeAndAssertWorkingDirectory("/file", "cwd", "preserve")).toThrow(
+      "Error [INVALID_ARGUMENT]: cwd must be a directory: /file"
+    );
+
+    vi.mocked(statSync).mockImplementation(() => {
+      throw new Error("permission denied");
+    });
+    expect(() => normalizeAndAssertWorkingDirectory("/blocked", "cwd", "preserve")).toThrow(
+      "Error [INVALID_ARGUMENT]: cwd is not accessible: /blocked (permission denied)"
+    );
   });
 });

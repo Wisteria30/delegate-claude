@@ -21,18 +21,18 @@ export function normalizeAndAssertWorkingDirectory(
       `Error [${ErrorCode.INVALID_ARGUMENT}]: ${contextLabel} path does not exist: ${resolvedCwd}`
     );
   }
+  let stat;
   try {
-    const stat = statSync(resolvedCwd);
-    if (!stat.isDirectory()) {
-      throw new Error(
-        `Error [${ErrorCode.INVALID_ARGUMENT}]: ${contextLabel} must be a directory: ${resolvedCwd}`
-      );
-    }
+    stat = statSync(resolvedCwd);
   } catch (err: unknown) {
-    if (err instanceof Error && err.message.includes("Error [")) throw err;
     const detail = err instanceof Error ? ` (${err.message})` : "";
     throw new Error(
       `Error [${ErrorCode.INVALID_ARGUMENT}]: ${contextLabel} is not accessible: ${resolvedCwd}${detail}`
+    );
+  }
+  if (!stat.isDirectory()) {
+    throw new Error(
+      `Error [${ErrorCode.INVALID_ARGUMENT}]: ${contextLabel} must be a directory: ${resolvedCwd}`
     );
   }
   return resolvedCwd;
