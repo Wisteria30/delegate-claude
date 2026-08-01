@@ -1,7 +1,21 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { SessionManager } from "../src/session/manager.js";
 import { executeClaudeCodeCheck } from "../src/tools/claude-code-check.js";
-import type { CheckResult, PermissionRequestRecord, PermissionUpdate } from "../src/types.js";
+import type {
+  CheckResult,
+  PendingAction,
+  PermissionAction,
+  PermissionRequestRecord,
+  PermissionUpdate,
+} from "../src/types.js";
+
+/** Narrow an `actions[]` entry to the permission variant, failing loudly otherwise. */
+function permissionAction(action: PendingAction | undefined): PermissionAction {
+  if (action?.type !== "permission") {
+    throw new Error(`expected a permission action, received '${action?.type ?? "none"}'`);
+  }
+  return action;
+}
 
 describe("executeClaudeCodeCheck", () => {
   let manager: SessionManager;
@@ -69,11 +83,11 @@ describe("executeClaudeCodeCheck", () => {
     expect("isError" in polled).toBe(false);
     expect((polled as { status: string }).status).toBe("waiting_permission");
     expect((polled as { actions?: unknown[] }).actions?.length).toBe(1);
-    const action = (polled as CheckResult).actions?.[0];
-    expect(action?.timeoutMs).toBe(60_000);
-    expect(typeof action?.expiresAt).toBe("string");
-    expect(action?.remainingMs).toBeGreaterThan(0);
-    expect(action?.remainingMs).toBeLessThanOrEqual(60_000);
+    const action = permissionAction((polled as CheckResult).actions?.[0]);
+    expect(action.timeoutMs).toBe(60_000);
+    expect(typeof action.expiresAt).toBe("string");
+    expect(action.remainingMs).toBeGreaterThan(0);
+    expect(action.remainingMs).toBeLessThanOrEqual(60_000);
 
     const responded = executeClaudeCodeCheck(
       {
@@ -390,10 +404,11 @@ describe("executeClaudeCodeCheck", () => {
       description: "Detailed description",
       createdAt: record.createdAt,
     });
-    expect(polled.actions?.[0]?.timeoutMs).toBe(60_000);
-    expect(typeof polled.actions?.[0]?.expiresAt).toBe("string");
-    expect(polled.actions?.[0]?.remainingMs).toBeGreaterThan(0);
-    expect(polled.actions?.[0]?.remainingMs).toBeLessThanOrEqual(60_000);
+    const polledAction = permissionAction(polled.actions?.[0]);
+    expect(polledAction.timeoutMs).toBe(60_000);
+    expect(typeof polledAction.expiresAt).toBe("string");
+    expect(polledAction.remainingMs).toBeGreaterThan(0);
+    expect(polledAction.remainingMs).toBeLessThanOrEqual(60_000);
   });
 
   it("supports concurrent permission requests and keeps waiting_state until all resolved", () => {

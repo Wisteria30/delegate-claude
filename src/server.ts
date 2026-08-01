@@ -282,7 +282,7 @@ export function createServerContext(serverCwd: string): {
   });
 
   const structuredErrorSchema = z.object({
-    code: z.string(),
+    code: z.enum(LocalErrorCode),
     message: z.string(),
     recoverable: z.boolean(),
   });

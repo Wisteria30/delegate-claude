@@ -2,11 +2,11 @@ import { ResourceTemplate, type McpServer } from "@modelcontextprotocol/sdk/serv
 import type { ReadResourceResult } from "@modelcontextprotocol/sdk/types.js";
 import { createHash } from "node:crypto";
 import type { SessionManager } from "../session/manager.js";
-import { DEFAULT_USER_QUESTION_TIMEOUT_MS } from "../session/manager.js";
 import {
   ErrorCode,
   DEFAULT_POLL_INTERVAL_RUNNING_MS,
   DEFAULT_POLL_INTERVAL_WAITING_MS,
+  DEFAULT_USER_QUESTION_TIMEOUT_MS,
 } from "../types.js";
 import {
   defaultCatalogTools,

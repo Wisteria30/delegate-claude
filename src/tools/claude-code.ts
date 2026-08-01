@@ -28,9 +28,12 @@ import {
 } from "../utils/normalize-windows-path.js";
 import { resolveExplicitClaudeExecutable } from "../utils/claude-executable.js";
 import { normalizeAndAssertWorkingDirectory } from "../utils/working-directory.js";
-import { toToolError } from "../utils/tool-error.js";
 import { validatePermissionMode } from "../utils/permission-mode.js";
-import { classifySdkStartError, structuredError } from "../utils/structured-error.js";
+import {
+  classifySdkStartError,
+  structuredError,
+  toStructuredError,
+} from "../utils/structured-error.js";
 
 /**
  * Low-frequency / SDK-passthrough options grouped under `advanced`.
@@ -111,7 +114,7 @@ export async function executeClaudeCode(
       return {
         sessionId: "",
         status: "error",
-        error: toToolError(err),
+        error: toStructuredError(err, ErrorCode.INTERNAL),
       };
     }
   } else {
@@ -142,7 +145,7 @@ export async function executeClaudeCode(
       input.allowDangerouslySkipPermissions
     );
   } catch (err: unknown) {
-    return { sessionId: "", status: "error", error: toToolError(err) };
+    return { sessionId: "", status: "error", error: toStructuredError(err, ErrorCode.INTERNAL) };
   }
 
   // Flatten top-level + advanced into a single object for buildOptions / sessionManager.

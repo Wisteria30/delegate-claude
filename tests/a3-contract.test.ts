@@ -295,7 +295,7 @@ describe("A3 permission and user-question contract", () => {
           },
         ],
       });
-      expect(poll.actions?.[0]?.toolName).toBeUndefined();
+      expect(poll.actions?.[0]).not.toHaveProperty("toolName");
 
       const requestId = poll.actions![0]!.requestId;
       const response = executeClaudeCodeCheck(
@@ -430,7 +430,6 @@ describe("A3 permission and user-question contract", () => {
         questions: [{ question: "Q?", header: "Q", options: [], multiSelect: false }],
         originalInput: { questions: [] },
         createdAt: new Date().toISOString(),
-        expiresAt: "",
       },
       vi.fn()
     );
@@ -463,7 +462,6 @@ describe("A3 permission and user-question contract", () => {
         questions: [{ question: "Q?", header: "Q", options: [], multiSelect: false }],
         originalInput: { questions: [] },
         createdAt: new Date().toISOString(),
-        expiresAt: "",
       },
       finish,
       30 * 60 * 1000
@@ -543,7 +541,6 @@ describe("A3 permission and user-question contract", () => {
           questions: [{ question: "Q?", header: "Q", options: [], multiSelect: false }],
           originalInput: { questions: [] },
           createdAt: new Date().toISOString(),
-          expiresAt: "",
         },
         finish
       );

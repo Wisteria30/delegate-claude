@@ -17,7 +17,12 @@ import type {
   StructuredError,
   UserQuestionRequestRecord,
 } from "../types.js";
-import { ErrorCode, isActiveStatus, isWaitingStatus } from "../types.js";
+import {
+  DEFAULT_USER_QUESTION_TIMEOUT_MS,
+  ErrorCode,
+  isActiveStatus,
+  isWaitingStatus,
+} from "../types.js";
 import { formatStructuredError, structuredError } from "../utils/structured-error.js";
 import { normalizeToolInput } from "../utils/normalize-tool-input.js";
 import { findUnsupportedPosixPathInToolInput } from "../utils/normalize-windows-path.js";
@@ -30,7 +35,6 @@ const DEFAULT_EVENT_BUFFER_MAX_SIZE = 1000;
 const DEFAULT_EVENT_BUFFER_HARD_MAX_SIZE = 2000;
 const DEFAULT_MAX_SESSIONS = 128;
 const DEFAULT_MAX_PENDING_PERMISSIONS_PER_SESSION = 64;
-export const DEFAULT_USER_QUESTION_TIMEOUT_MS = 30 * 60 * 1000;
 
 function parsePositiveInt(raw: string | undefined): number | undefined {
   if (typeof raw !== "string" || raw.trim() === "") return undefined;
@@ -42,6 +46,11 @@ function parsePositiveInt(raw: string | undefined): number | undefined {
 function normalizePositiveNumber(value: number | undefined): number | undefined {
   if (typeof value !== "number" || !Number.isFinite(value) || value <= 0) return undefined;
   return Math.trunc(value);
+}
+
+/** Locale-independent ascending order over ISO-8601 `createdAt` stamps. */
+function byCreatedAt(a: { createdAt: string }, b: { createdAt: string }): number {
+  return a.createdAt < b.createdAt ? -1 : a.createdAt > b.createdAt ? 1 : 0;
 }
 
 function normalizeToolPolicyNames(values: string[] | undefined): string[] {
@@ -66,6 +75,8 @@ type SessionRuntimeState = {
   buffer: EventBuffer;
   pendingPermissions: Map<string, PendingPermission>;
   pendingUserQuestions: Map<string, PendingUserQuestion>;
+  /** Built once per session; `pushEvent` runs on every event, eviction rarely. */
+  isPendingRequest: (requestId: string) => boolean;
   storedResult?: StoredAgentResult;
   terminalError?: StructuredError;
   initTools?: string[];
@@ -272,7 +283,7 @@ export class SessionManager {
       queryInterrupt: params.queryInterrupt,
     };
     this.sessions.set(params.sessionId, info);
-    this.runtime.set(params.sessionId, {
+    const state: SessionRuntimeState = {
       buffer: {
         events: [],
         maxSize: this.eventBufferMaxSize,
@@ -281,7 +292,10 @@ export class SessionManager {
       },
       pendingPermissions: new Map(),
       pendingUserQuestions: new Map(),
-    });
+      isPendingRequest: (requestId) =>
+        state.pendingPermissions.has(requestId) || state.pendingUserQuestions.has(requestId),
+    };
+    this.runtime.set(params.sessionId, state);
     return info;
   }
 
@@ -467,12 +481,7 @@ export class SessionManager {
     if (this.destroyed) return undefined;
     const state = this.runtime.get(sessionId);
     if (!state) return undefined;
-    const full = SessionManager.pushEvent(
-      state.buffer,
-      event,
-      (requestId) =>
-        state.pendingPermissions.has(requestId) || state.pendingUserQuestions.has(requestId)
-    );
+    const full = SessionManager.pushEvent(state.buffer, event, state.isPendingRequest);
     const info = this.sessions.get(sessionId);
     if (info) {
       info.lastActiveAt = new Date().toISOString();
@@ -676,7 +685,7 @@ export class SessionManager {
     if (!state) return [];
     return Array.from(state.pendingPermissions.values())
       .map((p) => p.record)
-      .sort((a, b) => (a.createdAt < b.createdAt ? -1 : a.createdAt > b.createdAt ? 1 : 0));
+      .sort(byCreatedAt);
   }
 
   getPendingPermission(sessionId: string, requestId: string): PermissionRequestRecord | undefined {
@@ -687,7 +696,7 @@ export class SessionManager {
 
   setPendingUserQuestion(
     sessionId: string,
-    req: UserQuestionRequestRecord,
+    req: Omit<UserQuestionRequestRecord, "expiresAt">,
     finish: FinishFn,
     timeoutMs = DEFAULT_USER_QUESTION_TIMEOUT_MS
   ): boolean {
@@ -761,7 +770,7 @@ export class SessionManager {
     if (!state) return [];
     return Array.from(state.pendingUserQuestions.values())
       .map((pending) => pending.record)
-      .sort((a, b) => (a.createdAt < b.createdAt ? -1 : a.createdAt > b.createdAt ? 1 : 0));
+      .sort(byCreatedAt);
   }
 
   getPendingUserQuestion(
@@ -949,8 +958,8 @@ export class SessionManager {
     if (state.pendingPermissions.size === 0 && state.pendingUserQuestions.size === 0) return;
 
     // Drain until empty so requests created during finish callbacks are also resolved.
-    const drain = <T extends PendingRequest>(
-      map: Map<string, T>,
+    const drain = (
+      map: Map<string, PendingRequest>,
       finishOne: (requestId: string) => boolean
     ): void => {
       while (map.size > 0) {

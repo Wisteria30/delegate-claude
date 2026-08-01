@@ -4,6 +4,7 @@
 import type { SessionManager } from "../session/manager.js";
 import type {
   AgentDefinition,
+  AgentResult,
   EffortLevel,
   McpServerConfig,
   OutputFormat,
@@ -37,12 +38,12 @@ import {
 } from "../utils/normalize-windows-path.js";
 import { resolveExplicitClaudeExecutable } from "../utils/claude-executable.js";
 import { normalizeAndAssertWorkingDirectory } from "../utils/working-directory.js";
-import { toToolError } from "../utils/tool-error.js";
 import { validatePermissionMode } from "../utils/permission-mode.js";
 import {
   classifySdkStartError,
   formatStructuredError,
   structuredError,
+  toStructuredError,
 } from "../utils/structured-error.js";
 
 /** Disk resume fallback configuration — only used when the in-memory session is missing. */
@@ -109,33 +110,32 @@ export type ClaudeCodeReplyStartResult =
   | SessionStartResult
   | { sessionId: string; status: "error"; error: StructuredError };
 
-function toStartError(
+/**
+ * Record a failed start as the session's terminal state: stored result, error event,
+ * and `status: "error"`. All three manager calls no-op when the session is gone.
+ */
+function recordStartFailure(
+  sessionManager: SessionManager,
   sessionId: string,
   error: StructuredError
-): {
-  agentResult: {
-    sessionId: string;
-    result: string;
-    isError: true;
-    error: StructuredError;
-    durationMs: 0;
-    numTurns: 0;
-    totalCostUsd: 0;
-  };
-  error: StructuredError;
-} {
-  return {
-    agentResult: {
-      sessionId,
-      result: formatStructuredError(error),
-      isError: true,
-      error,
-      durationMs: 0,
-      numTurns: 0,
-      totalCostUsd: 0,
-    },
+): void {
+  const agentResult: AgentResult = {
+    sessionId,
+    result: formatStructuredError(error),
+    isError: true,
     error,
+    durationMs: 0,
+    numTurns: 0,
+    totalCostUsd: 0,
   };
+  const now = new Date().toISOString();
+  sessionManager.setResult(sessionId, { type: "error", result: agentResult, createdAt: now });
+  sessionManager.pushEvent(sessionId, { type: "error", data: agentResult, timestamp: now });
+  sessionManager.update(sessionId, {
+    status: "error",
+    abortController: undefined,
+    queryInterrupt: undefined,
+  });
 }
 
 function buildDiskResumeSource(
@@ -279,22 +279,7 @@ export async function executeClaudeCodeReply(
         });
       } catch (err: unknown) {
         const error = classifySdkStartError(err, source.model);
-        const { agentResult } = toStartError(input.sessionId, error);
-        sessionManager.setResult(input.sessionId, {
-          type: "error",
-          result: agentResult,
-          createdAt: new Date().toISOString(),
-        });
-        sessionManager.pushEvent(input.sessionId, {
-          type: "error",
-          data: agentResult,
-          timestamp: new Date().toISOString(),
-        });
-        sessionManager.update(input.sessionId, {
-          status: "error",
-          abortController: undefined,
-          queryInterrupt: undefined,
-        });
+        recordStartFailure(sessionManager, input.sessionId, error);
         return { sessionId: input.sessionId, status: "error", error };
       }
 
@@ -310,24 +295,7 @@ export async function executeClaudeCodeReply(
       };
     } catch (err: unknown) {
       const error = classifySdkStartError(err, input.diskResumeConfig?.model);
-      const { agentResult } = toStartError(input.sessionId, error);
-      if (sessionManager.get(input.sessionId)) {
-        sessionManager.setResult(input.sessionId, {
-          type: "error",
-          result: agentResult,
-          createdAt: new Date().toISOString(),
-        });
-        sessionManager.pushEvent(input.sessionId, {
-          type: "error",
-          data: agentResult,
-          timestamp: new Date().toISOString(),
-        });
-        sessionManager.update(input.sessionId, {
-          status: "error",
-          abortController: undefined,
-          queryInterrupt: undefined,
-        });
-      }
+      recordStartFailure(sessionManager, input.sessionId, error);
       return {
         sessionId: input.sessionId,
         status: "error",
@@ -370,7 +338,7 @@ export async function executeClaudeCodeReply(
     return {
       sessionId: input.sessionId,
       status: "error",
-      error: toToolError(err, ErrorCode.SDK_START_FAILED),
+      error: toStructuredError(err, ErrorCode.SDK_START_FAILED),
     };
   }
 
@@ -408,7 +376,11 @@ export async function executeClaudeCodeReply(
       status: originalStatus,
       abortController: undefined,
     });
-    return { sessionId: input.sessionId, status: "error", error: toToolError(err) };
+    return {
+      sessionId: input.sessionId,
+      status: "error",
+      error: toStructuredError(err, ErrorCode.INTERNAL),
+    };
   }
   const options = buildOptions({
     ...session,
@@ -543,7 +515,6 @@ export async function executeClaudeCodeReply(
     };
   } catch (err: unknown) {
     const error = classifySdkStartError(err, session.model);
-    const { agentResult } = toStartError(input.sessionId, error);
     if (input.forkSession) {
       sessionManager.update(input.sessionId, {
         status: originalStatus,
@@ -551,21 +522,7 @@ export async function executeClaudeCodeReply(
         queryInterrupt: undefined,
       });
     } else {
-      sessionManager.setResult(input.sessionId, {
-        type: "error",
-        result: agentResult,
-        createdAt: new Date().toISOString(),
-      });
-      sessionManager.pushEvent(input.sessionId, {
-        type: "error",
-        data: agentResult,
-        timestamp: new Date().toISOString(),
-      });
-      sessionManager.update(input.sessionId, {
-        status: "error",
-        abortController: undefined,
-        queryInterrupt: undefined,
-      });
+      recordStartFailure(sessionManager, input.sessionId, error);
     }
     return {
       sessionId: input.sessionId,

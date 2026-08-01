@@ -265,6 +265,11 @@ export const DEFAULT_POLL_INTERVAL_RUNNING_MS = 120_000;
  * Kept short so callers can unblock pending actions before permission timeout.
  */
 export const DEFAULT_POLL_INTERVAL_WAITING_MS = 1_000;
+/**
+ * How long a pending `AskUserQuestion` waits for `respond_user_input` before the
+ * tool use is denied and the session records `USER_INPUT_TIMEOUT`.
+ */
+export const DEFAULT_USER_QUESTION_TIMEOUT_MS = 30 * 60 * 1000;
 
 export const CHECK_ACTIONS = ["poll", "respond_permission", "respond_user_input"] as const;
 export type CheckAction = (typeof CHECK_ACTIONS)[number];
@@ -393,6 +398,40 @@ export type StoredAgentResult =
   | { type: "result"; result: AgentResult; createdAt: string }
   | { type: "error"; result: AgentResult; createdAt: string };
 
+/** A pending permission request as returned in `claude_code_check` `actions[]`. */
+export interface PermissionAction {
+  type: "permission";
+  requestId: string;
+  toolName: string;
+  input: Record<string, unknown>;
+  summary: string;
+  title?: string;
+  displayName?: string;
+  decisionReason?: string;
+  blockedPath?: string;
+  toolUseID: string;
+  agentID?: string;
+  suggestions?: PermissionUpdate[];
+  description?: string;
+  createdAt: string;
+  timeoutMs?: number;
+  expiresAt?: string;
+  /** Best-effort ms remaining until expiresAt (computed at poll time). */
+  remainingMs?: number;
+}
+
+/** A pending `AskUserQuestion` as returned in `claude_code_check` `actions[]`. */
+export interface UserQuestionAction {
+  type: "user_question";
+  requestId: string;
+  toolUseId: string;
+  questions: UserQuestion[];
+  createdAt: string;
+  expiresAt: string;
+}
+
+export type PendingAction = PermissionAction | UserQuestionAction;
+
 export interface CheckResult {
   sessionId: string;
   status: SessionStatus;
@@ -414,28 +453,7 @@ export interface CheckResult {
     unknownDisallowedTools: string[];
   };
   compatWarnings?: string[];
-  actions?: Array<{
-    type: "permission" | "user_question";
-    requestId: string;
-    toolName?: string;
-    input?: Record<string, unknown>;
-    summary?: string;
-    title?: string;
-    displayName?: string;
-    decisionReason?: string;
-    blockedPath?: string;
-    toolUseID?: string;
-    toolUseId?: string;
-    agentID?: string;
-    suggestions?: PermissionUpdate[];
-    description?: string;
-    questions?: UserQuestion[];
-    createdAt: string;
-    timeoutMs?: number;
-    expiresAt?: string;
-    /** Best-effort ms remaining until expiresAt (computed at poll time). */
-    remainingMs?: number;
-  }>;
+  actions?: PendingAction[];
   result?: AgentResult;
   cancelledAt?: string;
   cancelledReason?: string;

@@ -7,6 +7,7 @@ import type {
   CheckAction,
   CheckResult,
   CheckResponseMode,
+  PendingAction,
   PermissionDecision,
   PermissionRequestRecord,
   PermissionResult,
@@ -453,8 +454,15 @@ function buildResult(sessionManager: SessionManager, input: ClaudeCodeCheckInput
     return filtered;
   })();
 
-  const pendingPermissions = sessionManager.listPendingPermissions(sessionId);
-  const pendingQuestions = sessionManager.listPendingUserQuestions(sessionId);
+  // Skip the copy+sort in listPending* when the maps are empty (the common poll).
+  const pendingPermissions =
+    sessionManager.getPendingPermissionCount(sessionId) > 0
+      ? sessionManager.listPendingPermissions(sessionId)
+      : [];
+  const pendingQuestions =
+    sessionManager.getPendingUserQuestionCount(sessionId) > 0
+      ? sessionManager.listPendingUserQuestions(sessionId)
+      : [];
   const stored =
     status === "idle" || status === "error" ? sessionManager.getResult(sessionId) : undefined;
 
@@ -485,43 +493,41 @@ function buildResult(sessionManager: SessionManager, input: ClaudeCodeCheckInput
         : (cursorResetTo ?? input.cursor ?? 0);
   }
 
-  const actions: NonNullable<CheckResult["actions"]> = !includeActions
-    ? []
-    : [
-        ...pendingPermissions.map((req) => {
-          const expiresMs = req.expiresAt ? Date.parse(req.expiresAt) : Number.NaN;
-          const remainingMs = Number.isFinite(expiresMs)
-            ? Math.max(0, expiresMs - Date.now())
-            : undefined;
-          return {
-            type: "permission" as const,
-            requestId: req.requestId,
-            toolName: req.toolName,
-            input: req.input,
-            summary: req.summary,
-            title: req.title,
-            displayName: req.displayName,
-            decisionReason: req.decisionReason,
-            blockedPath: req.blockedPath,
-            toolUseID: req.toolUseID,
-            agentID: req.agentID,
-            suggestions: req.suggestions,
-            description: req.description,
-            createdAt: req.createdAt,
-            timeoutMs: req.timeoutMs,
-            expiresAt: req.expiresAt,
-            remainingMs,
-          };
-        }),
-        ...pendingQuestions.map((req) => ({
-          type: "user_question" as const,
-          requestId: req.requestId,
-          toolUseId: req.toolUseId,
-          questions: req.questions,
-          createdAt: req.createdAt,
-          expiresAt: req.expiresAt,
-        })),
-      ];
+  const actions: PendingAction[] = [];
+  if (includeActions) {
+    for (const req of pendingPermissions) {
+      const expiresMs = req.expiresAt ? Date.parse(req.expiresAt) : Number.NaN;
+      actions.push({
+        type: "permission",
+        requestId: req.requestId,
+        toolName: req.toolName,
+        input: req.input,
+        summary: req.summary,
+        title: req.title,
+        displayName: req.displayName,
+        decisionReason: req.decisionReason,
+        blockedPath: req.blockedPath,
+        toolUseID: req.toolUseID,
+        agentID: req.agentID,
+        suggestions: req.suggestions,
+        description: req.description,
+        createdAt: req.createdAt,
+        timeoutMs: req.timeoutMs,
+        expiresAt: req.expiresAt,
+        remainingMs: Number.isFinite(expiresMs) ? Math.max(0, expiresMs - Date.now()) : undefined,
+      });
+    }
+    for (const req of pendingQuestions) {
+      actions.push({
+        type: "user_question",
+        requestId: req.requestId,
+        toolUseId: req.toolUseId,
+        questions: req.questions,
+        createdAt: req.createdAt,
+        expiresAt: req.expiresAt,
+      });
+    }
+  }
 
   return {
     sessionId,
@@ -535,7 +541,7 @@ function buildResult(sessionManager: SessionManager, input: ClaudeCodeCheckInput
     availableTools,
     toolValidation: toolValidation.summary,
     compatWarnings: compatWarnings.length > 0 ? compatWarnings : undefined,
-    actions: includeActions && actions.length > 0 ? actions : undefined,
+    actions: actions.length > 0 ? actions : undefined,
     result:
       includeResult && stored?.result
         ? redactAgentResult(stored.result, {
