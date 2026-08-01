@@ -53,12 +53,15 @@ function readTarEntries(tarballPath) {
     const name = readString(0, 100);
     const prefix = readString(345, 155);
     const entryPath = prefix ? `${prefix}/${name}` : name;
+    const modeText = readString(100, 8).trim();
+    const mode = modeText === "" ? 0 : Number.parseInt(modeText, 8);
+    assert(Number.isSafeInteger(mode), `invalid tar entry mode for ${entryPath}`);
     const sizeText = readString(124, 12).trim();
     const size = sizeText === "" ? 0 : Number.parseInt(sizeText, 8);
     assert(Number.isSafeInteger(size), `invalid tar entry size for ${entryPath}`);
 
     const dataOffset = offset + 512;
-    entries.set(entryPath, archive.subarray(dataOffset, dataOffset + size));
+    entries.set(entryPath, { data: archive.subarray(dataOffset, dataOffset + size), mode });
     offset = dataOffset + Math.ceil(size / 512) * 512;
   }
 
@@ -78,16 +81,16 @@ function verifyDryRunMetadata(metadata) {
   for (const filePath of ["package.json", "LICENSE", "NOTICE.md", EXPECTED_EXECUTABLE_PATH]) {
     assert(files.has(filePath), `npm pack dry-run is missing ${filePath}`);
   }
-  const executableEntry = files.get(EXPECTED_EXECUTABLE_PATH);
-  assert(typeof executableEntry.mode === "number", "npm pack dry-run executable mode is missing");
-  assert((executableEntry.mode & 0o111) !== 0, "packed executable entry is not executable");
 }
 
 function verifyTarball(tarballPath) {
   const entries = readTarEntries(tarballPath);
-  const packageJson = JSON.parse(requiredEntry(entries, "package/package.json").toString("utf8"));
-  const license = requiredEntry(entries, "package/LICENSE").toString("utf8");
-  const notice = requiredEntry(entries, "package/NOTICE.md").toString("utf8");
+  const packageJson = JSON.parse(
+    requiredEntry(entries, "package/package.json").data.toString("utf8")
+  );
+  const license = requiredEntry(entries, "package/LICENSE").data.toString("utf8");
+  const notice = requiredEntry(entries, "package/NOTICE.md").data.toString("utf8");
+  const executable = requiredEntry(entries, `package/${EXPECTED_EXECUTABLE_PATH}`);
 
   assert(packageJson.name === EXPECTED_PACKAGE_NAME, "tarball package name mismatch");
   assert(
@@ -95,10 +98,11 @@ function verifyTarball(tarballPath) {
       Object.keys(packageJson.bin).length === 1,
     "tarball executable mapping mismatch"
   );
+  assert((executable.mode & 0o111) !== 0, "tarball executable entry is not executable");
   assert(license.includes(UPSTREAM_COPYRIGHT), "tarball LICENSE lost the upstream copyright");
   assert(notice.includes(UPSTREAM_COPYRIGHT), "tarball NOTICE lost the upstream copyright");
 
-  return packageJson;
+  return { packageJson, executableMode: executable.mode };
 }
 
 function main() {
@@ -109,7 +113,9 @@ function main() {
   try {
     const packed = runNpmPack(["--pack-destination", packDirectory]);
     assert(packed.name === dryRun.name, "dry-run and tarball package names differ");
-    const packageJson = verifyTarball(path.join(packDirectory, packed.filename));
+    const { packageJson, executableMode } = verifyTarball(
+      path.join(packDirectory, packed.filename)
+    );
     process.stdout.write(
       `${JSON.stringify(
         {
@@ -117,6 +123,7 @@ function main() {
           package: packageJson.name,
           executable: EXPECTED_EXECUTABLE_NAME,
           executablePath: packageJson.bin[EXPECTED_EXECUTABLE_NAME],
+          executableMode,
           files: packed.entryCount,
           licenseNotice: UPSTREAM_COPYRIGHT,
         },
