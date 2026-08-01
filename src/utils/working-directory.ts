@@ -7,11 +7,15 @@ import { normalizeWindowsPathLike } from "./normalize-windows-path.js";
 export function normalizeAndAssertWorkingDirectory(
   cwd: string,
   contextLabel: string,
-  portableTmpAlias: "preserve" | "resolve"
+  portableTmpAlias: "preserve" | "resolve",
+  platform: NodeJS.Platform = process.platform
 ): string {
-  const normalizedCwd = normalizeWindowsPathLike(cwd);
+  // Start preserves client-supplied /tmp paths; disk and in-memory replies resolve stored aliases.
+  const normalizedCwd = normalizeWindowsPathLike(cwd, platform);
   const resolvedCwd =
-    portableTmpAlias === "resolve" ? resolvePortableTmpAlias(normalizedCwd) : normalizedCwd;
+    portableTmpAlias === "resolve"
+      ? resolvePortableTmpAlias(normalizedCwd, platform)
+      : normalizedCwd;
   if (!existsSync(resolvedCwd)) {
     throw new Error(
       `Error [${ErrorCode.INVALID_ARGUMENT}]: ${contextLabel} path does not exist: ${resolvedCwd}`
@@ -34,8 +38,8 @@ export function normalizeAndAssertWorkingDirectory(
   return resolvedCwd;
 }
 
-function resolvePortableTmpAlias(cwd: string): string {
-  if (process.platform !== "win32") return cwd;
+function resolvePortableTmpAlias(cwd: string, platform: NodeJS.Platform): string {
+  if (platform !== "win32") return cwd;
 
   const normalized = cwd.replace(/\\/g, "/");
   if (normalized === "/tmp") return os.tmpdir();

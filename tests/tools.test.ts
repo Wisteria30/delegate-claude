@@ -322,10 +322,32 @@ describe("executeClaudeCode (async)", () => {
     );
     expect(start.status).toBe("error");
     if (start.status === "error") {
-      expect(start.error).toContain("INVALID_ARGUMENT");
-      expect(start.error).toContain("path does not exist");
+      expect(start.error).toBe(`Error [INVALID_ARGUMENT]: cwd path does not exist: ${missingCwd}`);
     }
     expect(mockQuery).not.toHaveBeenCalled();
+  });
+
+  it("should format an unexpected cwd normalization error before calling query()", async () => {
+    const homedir = vi.spyOn(os, "homedir").mockImplementation(() => {
+      throw new Error("home directory unavailable");
+    });
+    try {
+      const start = await executeClaudeCode(
+        { prompt: "Test", cwd: "~/project" },
+        manager,
+        "/tmp",
+        toolCache
+      );
+
+      expect(start).toEqual({
+        sessionId: "",
+        status: "error",
+        error: "Error [INTERNAL]: home directory unavailable",
+      });
+      expect(mockQuery).not.toHaveBeenCalled();
+    } finally {
+      homedir.mockRestore();
+    }
   });
 
   it("should return TIMEOUT when init is not received within sessionInitTimeoutMs", async () => {

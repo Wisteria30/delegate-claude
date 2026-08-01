@@ -78,6 +78,11 @@ export type ClaudeCodeStartResult =
   | SessionStartResult
   | { sessionId: string; status: "error"; error: string };
 
+function toStartErrorText(err: unknown): string {
+  const message = err instanceof Error ? err.message : String(err);
+  return message.includes("Error [") ? message : `Error [${ErrorCode.INTERNAL}]: ${message}`;
+}
+
 export async function executeClaudeCode(
   input: ClaudeCodeInput,
   sessionManager: SessionManager,
@@ -104,7 +109,7 @@ export async function executeClaudeCode(
       return {
         sessionId: "",
         status: "error",
-        error: err.message,
+        error: toStartErrorText(err),
       };
     }
   } else {
@@ -191,11 +196,10 @@ export async function executeClaudeCode(
       resumeToken: resumeSecret ? computeResumeToken(sessionId, resumeSecret) : undefined,
     };
   } catch (err: unknown) {
-    const message = err instanceof Error ? err.message : String(err);
     return {
       sessionId: "",
       status: "error",
-      error: message.includes("Error [") ? message : `Error [${ErrorCode.INTERNAL}]: ${message}`,
+      error: toStartErrorText(err),
     };
   }
 }
