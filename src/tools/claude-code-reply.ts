@@ -32,7 +32,10 @@ import { raceWithAbort } from "../utils/race-with-abort.js";
 import { buildOptions } from "../utils/build-options.js";
 import type { OptionSource } from "../utils/build-options.js";
 import { toSessionCreateParams } from "../session/create-params.js";
-import { normalizeWindowsPathLike } from "../utils/normalize-windows-path.js";
+import {
+  normalizeWindowsPathArray,
+  normalizeWindowsPathLike,
+} from "../utils/normalize-windows-path.js";
 import { resolveExplicitClaudeExecutable } from "../utils/claude-executable.js";
 
 /** Disk resume fallback configuration — only used when the in-memory session is missing. */
@@ -162,26 +165,33 @@ function toStartError(
   };
 }
 
-function buildOptionsFromDiskResume(dr: DiskResumeConfig): {
-  options: ReturnType<typeof buildOptions>;
-  explicitClaudeExecutable: string | undefined;
-} {
+function buildDiskResumeSource(
+  dr: DiskResumeConfig,
+  overrides: Pick<ClaudeCodeReplyInput, "effort" | "thinking">
+): OptionSource {
   if (dr.cwd === undefined || typeof dr.cwd !== "string" || dr.cwd.trim() === "") {
     throw new Error(`Error [${ErrorCode.INVALID_ARGUMENT}]: cwd must be provided for disk resume.`);
   }
   const normalizedCwd = normalizeAndAssertCwd(dr.cwd, "disk resume cwd");
-  const explicitClaudeExecutable =
+  const pathToClaudeCodeExecutable =
     dr.pathToClaudeCodeExecutable !== undefined
       ? resolveExplicitClaudeExecutable(dr.pathToClaudeCodeExecutable, normalizedCwd)
       : undefined;
-  return {
-    options: buildOptions({
-      ...dr,
-      cwd: normalizedCwd,
-      pathToClaudeCodeExecutable: explicitClaudeExecutable,
-    } as Parameters<typeof buildOptions>[0]),
-    explicitClaudeExecutable,
+  const { resumeToken: _resumeToken, ...source } = dr;
+  void _resumeToken;
+  const normalizedSource: OptionSource = {
+    ...source,
+    cwd: normalizedCwd,
+    additionalDirectories:
+      dr.additionalDirectories !== undefined
+        ? normalizeWindowsPathArray(dr.additionalDirectories)
+        : undefined,
+    debugFile: dr.debugFile !== undefined ? normalizeWindowsPathLike(dr.debugFile) : undefined,
+    pathToClaudeCodeExecutable,
   };
+  if (overrides.effort !== undefined) normalizedSource.effort = overrides.effort;
+  if (overrides.thinking !== undefined) normalizedSource.thinking = overrides.thinking;
+  return normalizedSource;
 }
 
 export async function executeClaudeCodeReply(
@@ -240,23 +250,8 @@ export async function executeClaudeCodeReply(
 
     try {
       const abortController = new AbortController();
-      const { options, explicitClaudeExecutable } = buildOptionsFromDiskResume(dr);
-      if (input.effort !== undefined) options.effort = input.effort;
-      if (input.thinking !== undefined) options.thinking = input.thinking;
-
-      const { resumeToken: _resumeToken, ...rest } = dr;
-      void _resumeToken;
-      const source: OptionSource = {
-        ...(rest as OptionSource),
-        cwd: options.cwd ?? dr.cwd ?? "",
-        additionalDirectories:
-          (options.additionalDirectories as string[] | undefined) ??
-          (rest as OptionSource).additionalDirectories,
-        debugFile: (options.debugFile as string | undefined) ?? (rest as OptionSource).debugFile,
-        pathToClaudeCodeExecutable: explicitClaudeExecutable,
-        effort: input.effort ?? (rest as OptionSource).effort,
-        thinking: input.thinking ?? (rest as OptionSource).thinking,
-      };
+      const source = buildDiskResumeSource(dr, input);
+      const options = buildOptions(source);
       sessionManager.create(
         toSessionCreateParams({
           sessionId: input.sessionId,

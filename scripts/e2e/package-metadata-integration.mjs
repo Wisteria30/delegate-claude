@@ -15,7 +15,10 @@ function assert(condition, message) {
 
 function runNpmPack(args) {
   const command = process.platform === "win32" ? "npm.cmd" : "npm";
-  const result = spawnSync(command, ["pack", "--ignore-scripts", "--json", ...args], {
+  const npmArguments = ["pack", "--ignore-scripts", "--json", ...args];
+  const commandArguments =
+    process.platform === "win32" ? npmArguments.map((argument) => `"${argument}"`) : npmArguments;
+  const result = spawnSync(command, commandArguments, {
     cwd: process.cwd(),
     encoding: "utf8",
     shell: process.platform === "win32",
@@ -37,6 +40,10 @@ function readTarEntries(tarballPath) {
   while (offset + 512 <= archive.length) {
     const header = archive.subarray(offset, offset + 512);
     if (header.every((byte) => byte === 0)) break;
+    assert(
+      header.subarray(257, 263).toString("ascii") === "ustar\0",
+      "package tarball contains a non-ustar header"
+    );
 
     const readString = (start, length) =>
       header
@@ -66,14 +73,14 @@ function requiredEntry(entries, entryPath) {
 
 function verifyDryRunMetadata(metadata) {
   assert(metadata.name === EXPECTED_PACKAGE_NAME, "npm pack package name mismatch");
+  assert(Array.isArray(metadata.files), "npm pack dry-run files metadata is missing");
   const files = new Map(metadata.files.map((file) => [file.path, file]));
   for (const filePath of ["package.json", "LICENSE", "NOTICE.md", EXPECTED_EXECUTABLE_PATH]) {
     assert(files.has(filePath), `npm pack dry-run is missing ${filePath}`);
   }
-  assert(
-    (files.get(EXPECTED_EXECUTABLE_PATH).mode & 0o111) !== 0,
-    "packed executable entry is not executable"
-  );
+  const executableEntry = files.get(EXPECTED_EXECUTABLE_PATH);
+  assert(typeof executableEntry.mode === "number", "npm pack dry-run executable mode is missing");
+  assert((executableEntry.mode & 0o111) !== 0, "packed executable entry is not executable");
 }
 
 function verifyTarball(tarballPath) {
@@ -98,7 +105,7 @@ function main() {
   const dryRun = runNpmPack(["--dry-run"]);
   verifyDryRunMetadata(dryRun);
 
-  const packDirectory = mkdtempSync(path.join(os.tmpdir(), "delegate-claude-pack-"));
+  const packDirectory = mkdtempSync(path.join(os.tmpdir(), "delegate claude pack-"));
   try {
     const packed = runNpmPack(["--pack-destination", packDirectory]);
     assert(packed.name === dryRun.name, "dry-run and tarball package names differ");

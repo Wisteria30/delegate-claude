@@ -152,7 +152,6 @@ export async function executeClaudeCode(
   try {
     const normalizedFlat = {
       ...flat,
-      cwd: normalizedCwd,
       additionalDirectories:
         flat.additionalDirectories !== undefined
           ? normalizeWindowsPathArray(flat.additionalDirectories)

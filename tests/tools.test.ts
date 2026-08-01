@@ -599,10 +599,16 @@ describe("executeClaudeCodeReply (async)", () => {
         {
           sessionId: "disk-explicit",
           prompt: "Hi",
+          effort: "max",
+          thinking: { type: "adaptive" },
           diskResumeConfig: {
             cwd: "/tmp",
             resumeToken: computeResumeToken("disk-explicit", "test-secret"),
             pathToClaudeCodeExecutable: fixture.filePath,
+            additionalDirectories: ["/extra"],
+            debugFile: "/tmp/claude-debug.log",
+            effort: "low",
+            thinking: { type: "disabled" },
           },
         },
         manager,
@@ -611,9 +617,22 @@ describe("executeClaudeCodeReply (async)", () => {
 
       expect(res.status).toBe("running");
       const resolvedExecutable = path.normalize(fixture.filePath);
+      const resolvedCwd = process.platform === "win32" ? os.tmpdir() : "/tmp";
       const call = mockQuery.mock.calls[0]![0] as { options: Record<string, unknown> };
+      expect(call.options.cwd).toBe(resolvedCwd);
       expect(call.options.pathToClaudeCodeExecutable).toBe(resolvedExecutable);
-      expect(manager.get("disk-explicit")?.pathToClaudeCodeExecutable).toBe(resolvedExecutable);
+      expect(call.options.additionalDirectories).toEqual(["/extra"]);
+      expect(call.options.debugFile).toBe("/tmp/claude-debug.log");
+      expect(call.options.effort).toBe("max");
+      expect(call.options.thinking).toEqual({ type: "adaptive" });
+      expect(manager.get("disk-explicit")).toMatchObject({
+        cwd: resolvedCwd,
+        pathToClaudeCodeExecutable: resolvedExecutable,
+        additionalDirectories: ["/extra"],
+        debugFile: "/tmp/claude-debug.log",
+        effort: "max",
+        thinking: { type: "adaptive" },
+      });
     } finally {
       rmSync(fixture.dir, { recursive: true, force: true });
       vi.unstubAllEnvs();
