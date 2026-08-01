@@ -34,21 +34,24 @@ describe("normalizeAndAssertWorkingDirectory", () => {
     }
   });
 
-  it("preserves validation order and exact error classifications", () => {
+  it("rejects a missing path before reading its metadata", () => {
     vi.mocked(existsSync).mockReturnValue(false);
     expect(() => normalizeAndAssertWorkingDirectory("/missing", "cwd", "preserve")).toThrow(
       "Error [INVALID_ARGUMENT]: cwd path does not exist: /missing"
     );
     expect(statSync).not.toHaveBeenCalled();
+  });
 
-    vi.mocked(existsSync).mockReturnValue(true);
+  it("rejects a path that is not a directory", () => {
     vi.mocked(statSync).mockReturnValue({ isDirectory: () => false } as ReturnType<
       typeof statSync
     >);
     expect(() => normalizeAndAssertWorkingDirectory("/file", "cwd", "preserve")).toThrow(
       "Error [INVALID_ARGUMENT]: cwd must be a directory: /file"
     );
+  });
 
+  it("reports a metadata read failure as an inaccessible path", () => {
     vi.mocked(statSync).mockImplementation(() => {
       throw new Error("permission denied");
     });
