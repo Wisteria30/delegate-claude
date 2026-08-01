@@ -1,6 +1,6 @@
 ---
 name: Bug Report
-about: Report a bug in claude-code-mcp
+about: Report a bug in delegate-claude
 labels: bug
 ---
 
@@ -25,6 +25,6 @@ labels: bug
 ## Environment
 
 - Node.js version:
-- claude-code-mcp version:
+- delegate-claude version:
 - MCP client:
 - OS:

@@ -30,12 +30,12 @@ export function createServerContext(serverCwd: string): {
 
   const server = new McpServer(
     {
-      name: "claude-code-mcp",
+      name: "delegate-claude",
       version: SERVER_VERSION,
-      title: "Claude Code MCP",
+      title: "delegate-claude",
       description:
         "MCP server that runs Claude Code via the Claude Agent SDK. Starts and replies return quickly; callers poll with claude_code_check and answer permission requests explicitly.",
-      websiteUrl: "https://github.com/xihuai18/claude-code-mcp",
+      websiteUrl: "https://github.com/Wisteria30/delegate-claude",
       icons: [],
     },
     {
@@ -148,7 +148,7 @@ export function createServerContext(serverCwd: string): {
       .string()
       .optional()
       .describe(
-        "Explicit Claude executable path. Default: auto-detect 'claude', then 'claude-internal', else SDK-bundled. Server env vars can override the default."
+        "Explicit Claude Code executable path. The server validates and uses only this file when provided. Default: SDK-bundled Claude Code."
       ),
     mcpServers: z
       .record(z.string(), z.record(z.string(), z.unknown()))
@@ -160,7 +160,6 @@ export function createServerContext(serverCwd: string): {
       .describe(
         "Sandbox behavior config object. This controls sandbox behavior, not the actual allow/deny permission rules. Default: none"
       ),
-    fallbackModel: z.string().optional().describe("Default: none"),
     enableFileCheckpointing: z.boolean().optional().describe("Default: false"),
     toolConfig: z
       .record(z.string(), z.unknown())

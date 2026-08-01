@@ -1,12 +1,12 @@
 # Contributing
 
-Thanks for your interest in contributing to claude-code-mcp!
+Thanks for your interest in contributing to delegate-claude!
 
 ## Getting Started
 
 ```bash
-git clone https://github.com/xihuai18/claude-code-mcp.git
-cd claude-code-mcp
+git clone https://github.com/Wisteria30/delegate-claude.git
+cd delegate-claude
 mise install
 mise exec -- task install
 ```

@@ -1,15 +1,8 @@
-import { chmodSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
-import os from "node:os";
-import path from "node:path";
 import { describe, it, expect, vi } from "vitest";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { createServerContext } from "../src/server.js";
 import { ErrorCode } from "../src/types.js";
-import {
-  DEFAULT_CLAUDE_COMMAND_ENV,
-  DEFAULT_CLAUDE_PATH_ENV,
-} from "../src/utils/claude-executable.js";
 
 async function withClientServer<T>(
   fn: (client: Client, ctx: ReturnType<typeof createServerContext>) => Promise<T>
@@ -48,40 +41,31 @@ async function safeListTemplates(client: Client): Promise<string[]> {
   }
 }
 
-function createExecutableFixture(commandName: string): { dir: string; filePath: string } {
-  const dir = mkdtempSync(path.join(os.tmpdir(), "claude-resource-exec-"));
-  const fileName = process.platform === "win32" ? `${commandName}.cmd` : commandName;
-  const filePath = path.join(dir, fileName);
-  writeFileSync(filePath, process.platform === "win32" ? "@echo off\r\n" : "#!/bin/sh\n", "utf8");
-  if (process.platform !== "win32") chmodSync(filePath, 0o755);
-  return { dir, filePath };
-}
-
 describe("Resources", () => {
   it("should expose a small set of read-only resources", async () => {
     await withClientServer(async (client, ctx) => {
       const uris = await safeListResources(client);
       expect(uris.sort()).toEqual(
         [
-          "claude-code-mcp:///compat-report",
-          "claude-code-mcp:///errors",
-          "claude-code-mcp:///gotchas",
-          "claude-code-mcp:///internal-tools",
-          "claude-code-mcp:///quickstart",
-          "claude-code-mcp:///server-info",
+          "delegate-claude:///compat-report",
+          "delegate-claude:///errors",
+          "delegate-claude:///gotchas",
+          "delegate-claude:///internal-tools",
+          "delegate-claude:///quickstart",
+          "delegate-claude:///server-info",
         ].sort()
       );
 
       const templates = await safeListTemplates(client);
       expect(templates.slice().sort()).toEqual(
         [
-          "claude-code-mcp:///session/{sessionId}",
-          "claude-code-mcp:///tools/runtime{?sessionId}",
-          "claude-code-mcp:///compat/diff{?client}",
+          "delegate-claude:///session/{sessionId}",
+          "delegate-claude:///tools/runtime{?sessionId}",
+          "delegate-claude:///compat/diff{?client}",
         ].sort()
       );
 
-      const infoRes = await client.readResource({ uri: "claude-code-mcp:///server-info" });
+      const infoRes = await client.readResource({ uri: "delegate-claude:///server-info" });
       expect(infoRes.contents[0]?.mimeType).toBe("application/json");
       const infoContent = infoRes.contents[0];
       const infoText =
@@ -98,9 +82,9 @@ describe("Resources", () => {
         capabilities?: { resources?: unknown; toolsListChanged?: unknown };
         resourceTemplates?: unknown;
       };
-      expect(info.name).toBe("claude-code-mcp");
+      expect(info.name).toBe("delegate-claude");
       expect(typeof info.version).toBe("string");
-      expect(info.schemaVersion).toBe("1.4");
+      expect(info.schemaVersion).toBe("1.5");
       expect(typeof info.etag).toBe("string");
       expect(typeof info.updatedAt).toBe("string");
       expect(info.capabilities?.resources).toBe(true);
@@ -109,18 +93,18 @@ describe("Resources", () => {
       expect(Array.isArray(info.resources)).toBe(true);
       expect((info.resources as string[]).slice().sort()).toEqual(
         [
-          "claude-code-mcp:///compat-report",
-          "claude-code-mcp:///errors",
-          "claude-code-mcp:///server-info",
-          "claude-code-mcp:///internal-tools",
-          "claude-code-mcp:///gotchas",
-          "claude-code-mcp:///quickstart",
+          "delegate-claude:///compat-report",
+          "delegate-claude:///errors",
+          "delegate-claude:///server-info",
+          "delegate-claude:///internal-tools",
+          "delegate-claude:///gotchas",
+          "delegate-claude:///quickstart",
         ]
           .slice()
           .sort()
       );
 
-      const toolsRes = await client.readResource({ uri: "claude-code-mcp:///internal-tools" });
+      const toolsRes = await client.readResource({ uri: "delegate-claude:///internal-tools" });
       expect(toolsRes.contents[0]?.mimeType).toBe("application/json");
       const toolsContent = toolsRes.contents[0];
       const toolsText =
@@ -137,7 +121,7 @@ describe("Resources", () => {
       expect(firstTool?.permissionModel).toBe("policy_controlled");
       expect(firstTool?.schemaAvailability).toBe("none");
 
-      const gotchasRes = await client.readResource({ uri: "claude-code-mcp:///gotchas" });
+      const gotchasRes = await client.readResource({ uri: "delegate-claude:///gotchas" });
       expect(gotchasRes.contents[0]?.mimeType).toBe("text/markdown");
       const gotchasContent = gotchasRes.contents[0];
       const gotchasText =
@@ -149,7 +133,7 @@ describe("Resources", () => {
       expect(gotchasText).toContain("Detection:");
       expect(gotchasText).toContain("Remedy:");
 
-      const quickstartRes = await client.readResource({ uri: "claude-code-mcp:///quickstart" });
+      const quickstartRes = await client.readResource({ uri: "delegate-claude:///quickstart" });
       expect(quickstartRes.contents[0]?.mimeType).toBe("text/markdown");
       const quickstartContent = quickstartRes.contents[0];
       const quickstartText =
@@ -170,7 +154,7 @@ describe("Resources", () => {
       expect(quickstartText).toContain("final result arrives later via polling");
       expect(quickstartText).toContain("`respond_user_input` is not supported");
 
-      const errorsRes = await client.readResource({ uri: "claude-code-mcp:///errors" });
+      const errorsRes = await client.readResource({ uri: "delegate-claude:///errors" });
       expect(errorsRes.contents[0]?.mimeType).toBe("application/json");
       const errorsContent = errorsRes.contents[0];
       const errorsText =
@@ -194,7 +178,7 @@ describe("Resources", () => {
       expect(typeof hints[ErrorCode.SESSION_NOT_FOUND]).toBe("string");
       expect(typeof hints[ErrorCode.INTERNAL]).toBe("string");
 
-      const compatRes = await client.readResource({ uri: "claude-code-mcp:///compat-report" });
+      const compatRes = await client.readResource({ uri: "delegate-claude:///compat-report" });
       expect(compatRes.contents[0]?.mimeType).toBe("application/json");
       const compatContent = compatRes.contents[0];
       const compatText =
@@ -207,11 +191,9 @@ describe("Resources", () => {
         transport?: unknown;
         schemaVersion?: unknown;
         guidance?: unknown[];
-        defaultClaudeExecutable?: {
-          source?: unknown;
-          command?: unknown;
-          resolvedFileName?: unknown;
-          usingBundled?: unknown;
+        claudeCodeExecutable?: {
+          defaultSource?: unknown;
+          explicitPathValidation?: unknown;
         };
         limits?: {
           maxSessions?: unknown;
@@ -234,12 +216,12 @@ describe("Resources", () => {
       };
       expect(compat.samePlatformRequired).toBe(true);
       expect(compat.transport).toBe("stdio");
-      expect(compat.schemaVersion).toBe("1.4");
+      expect(compat.schemaVersion).toBe("1.5");
       expect(typeof compat.packageVersion).toBe("string");
       expect(typeof compat.limits?.eventBuffer?.maxSize).toBe("number");
       expect(typeof compat.limits?.eventBuffer?.hardMaxSize).toBe("number");
-      expect(typeof compat.defaultClaudeExecutable?.source).toBe("string");
-      expect(typeof compat.defaultClaudeExecutable?.usingBundled).toBe("boolean");
+      expect(compat.claudeCodeExecutable?.defaultSource).toBe("sdk_bundled");
+      expect(compat.claudeCodeExecutable?.explicitPathValidation).toBe("before_query");
       expect(typeof compat.diskResume?.enabled).toBe("boolean");
       expect(typeof compat.diskResume?.resumeSecretConfigured).toBe("boolean");
       expect(typeof compat.toolCounts?.catalogCount).toBe("number");
@@ -255,7 +237,7 @@ describe("Resources", () => {
 
       ctx.sessionManager.create({ sessionId: "s-template", cwd: "/tmp" });
       const sessionSnapshot = await client.readResource({
-        uri: "claude-code-mcp:///session/s-template",
+        uri: "delegate-claude:///session/s-template",
       });
       const sessionSnapshotContent = sessionSnapshot.contents[0];
       const sessionSnapshotText =
@@ -273,7 +255,7 @@ describe("Resources", () => {
       expect(sessionSnapshotJson.session?.pendingPermissionCount).toBe(0);
 
       const runtimeToolsNoInit = await client.readResource({
-        uri: "claude-code-mcp:///tools/runtime?sessionId=s-template",
+        uri: "delegate-claude:///tools/runtime?sessionId=s-template",
       });
       const runtimeToolsNoInitContent = runtimeToolsNoInit.contents[0];
       const runtimeToolsNoInitText =
@@ -292,7 +274,7 @@ describe("Resources", () => {
 
       ctx.sessionManager.setInitTools("s-template", ["Read", "Write", "ExternalX"]);
       const runtimeToolsWithInit = await client.readResource({
-        uri: "claude-code-mcp:///tools/runtime?sessionId=s-template",
+        uri: "delegate-claude:///tools/runtime?sessionId=s-template",
       });
       const runtimeToolsWithInitContent = runtimeToolsWithInit.contents[0];
       const runtimeToolsWithInitText =
@@ -309,7 +291,7 @@ describe("Resources", () => {
       expect(runtimeToolsWithInitJson.availableTools?.map((t) => t.name)).toContain("ExternalX");
 
       const compatDiff = await client.readResource({
-        uri: "claude-code-mcp:///compat/diff?client=codex",
+        uri: "delegate-claude:///compat/diff?client=codex",
       });
       const compatDiffContent = compatDiff.contents[0];
       const compatDiffText =
@@ -334,7 +316,7 @@ describe("Resources", () => {
     process.env.CLAUDE_CODE_MCP_MAX_PENDING_PERMISSIONS = "0";
     try {
       await withClientServer(async (client) => {
-        const compatRes = await client.readResource({ uri: "claude-code-mcp:///compat-report" });
+        const compatRes = await client.readResource({ uri: "delegate-claude:///compat-report" });
         const compatContent = compatRes.contents[0];
         const compatText =
           compatContent && "text" in compatContent && typeof compatContent.text === "string"
@@ -356,7 +338,7 @@ describe("Resources", () => {
 
   it("should return updated internal-tools content after runtime discovery", async () => {
     await withClientServer(async (client, ctx) => {
-      const first = await client.readResource({ uri: "claude-code-mcp:///internal-tools" });
+      const first = await client.readResource({ uri: "delegate-claude:///internal-tools" });
       const firstContent = first.contents[0];
       const firstText =
         firstContent && "text" in firstContent && typeof firstContent.text === "string"
@@ -369,7 +351,7 @@ describe("Resources", () => {
 
       ctx.toolCache.updateFromInit(["Read", "Write", "NewRuntimeTool"]);
 
-      const second = await client.readResource({ uri: "claude-code-mcp:///internal-tools" });
+      const second = await client.readResource({ uri: "delegate-claude:///internal-tools" });
       const secondContent = second.contents[0];
       const secondText =
         secondContent && "text" in secondContent && typeof secondContent.text === "string"
@@ -395,40 +377,5 @@ describe("Resources", () => {
         listChangedSpy.mockRestore();
       }
     });
-  });
-
-  it("should report the resolved default Claude executable in compat-report", async () => {
-    const fixture = createExecutableFixture("claude-internal");
-    vi.stubEnv("PATH", fixture.dir);
-    vi.stubEnv(DEFAULT_CLAUDE_COMMAND_ENV, "claude-internal");
-    vi.stubEnv(DEFAULT_CLAUDE_PATH_ENV, "");
-    try {
-      await withClientServer(async (client) => {
-        const compatRes = await client.readResource({ uri: "claude-code-mcp:///compat-report" });
-        const compatContent = compatRes.contents[0];
-        const compatText =
-          compatContent && "text" in compatContent && typeof compatContent.text === "string"
-            ? compatContent.text
-            : "{}";
-        const compat = JSON.parse(compatText) as {
-          defaultClaudeExecutable?: {
-            source?: unknown;
-            command?: unknown;
-            resolvedFileName?: unknown;
-            usingBundled?: unknown;
-          };
-        };
-
-        expect(compat.defaultClaudeExecutable?.source).toBe("env_command");
-        expect(compat.defaultClaudeExecutable?.command).toBe("claude-internal");
-        expect(compat.defaultClaudeExecutable?.resolvedFileName).toBe(
-          path.basename(fixture.filePath)
-        );
-        expect(compat.defaultClaudeExecutable?.usingBundled).toBe(false);
-      });
-    } finally {
-      vi.unstubAllEnvs();
-      rmSync(fixture.dir, { recursive: true, force: true });
-    }
   });
 });

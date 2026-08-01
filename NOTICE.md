@@ -1,6 +1,6 @@
 # NOTICE
 
-This project (`@leo000001/claude-code-mcp`) is licensed under the MIT License (see `LICENSE`).
+This project (`@wisteria30/delegate-claude`) is licensed under the MIT License (see `LICENSE`).
 
 ## Third-party components
 

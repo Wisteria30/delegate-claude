@@ -36,7 +36,6 @@ export function toSessionCreateParams(input: {
     agent: src.agent,
     mcpServers: src.mcpServers,
     sandbox: src.sandbox,
-    fallbackModel: src.fallbackModel,
     enableFileCheckpointing: src.enableFileCheckpointing,
     toolConfig: src.toolConfig,
     includePartialMessages: src.includePartialMessages,

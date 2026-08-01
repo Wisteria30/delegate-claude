@@ -33,7 +33,7 @@ import { buildOptions } from "../utils/build-options.js";
 import type { OptionSource } from "../utils/build-options.js";
 import { toSessionCreateParams } from "../utils/session-create.js";
 import { normalizeWindowsPathLike } from "../utils/normalize-windows-path.js";
-import { getDefaultClaudeExecutablePath } from "../utils/claude-executable.js";
+import { resolveExplicitClaudeExecutable } from "../utils/claude-executable.js";
 
 /** Disk resume fallback configuration — only used when the in-memory session is missing. */
 export interface DiskResumeConfig {
@@ -58,7 +58,6 @@ export interface DiskResumeConfig {
   pathToClaudeCodeExecutable?: string;
   mcpServers?: Record<string, McpServerConfig>;
   sandbox?: SandboxSettings;
-  fallbackModel?: string;
   enableFileCheckpointing?: boolean;
   toolConfig?: ToolConfig;
   includePartialMessages?: boolean;
@@ -168,14 +167,14 @@ function buildOptionsFromDiskResume(dr: DiskResumeConfig): ReturnType<typeof bui
     throw new Error(`Error [${ErrorCode.INVALID_ARGUMENT}]: cwd must be provided for disk resume.`);
   }
   const normalizedCwd = normalizeAndAssertCwd(dr.cwd, "disk resume cwd");
-  const options = buildOptions({
+  return buildOptions({
     ...dr,
     cwd: normalizedCwd,
+    pathToClaudeCodeExecutable:
+      dr.pathToClaudeCodeExecutable !== undefined
+        ? resolveExplicitClaudeExecutable(dr.pathToClaudeCodeExecutable, normalizedCwd)
+        : undefined,
   } as Parameters<typeof buildOptions>[0]);
-  if (options.pathToClaudeCodeExecutable === undefined) {
-    options.pathToClaudeCodeExecutable = getDefaultClaudeExecutablePath();
-  }
-  return options;
 }
 
 export async function executeClaudeCodeReply(
@@ -348,6 +347,22 @@ export async function executeClaudeCodeReply(
     };
   }
 
+  let normalizedCwd: string;
+  let explicitClaudeExecutable: string | undefined;
+  try {
+    normalizedCwd = normalizeAndAssertCwd(existing.cwd, "session cwd");
+    explicitClaudeExecutable =
+      existing.pathToClaudeCodeExecutable !== undefined
+        ? resolveExplicitClaudeExecutable(existing.pathToClaudeCodeExecutable, normalizedCwd)
+        : undefined;
+  } catch (err: unknown) {
+    return {
+      sessionId: input.sessionId,
+      status: "error",
+      error: toStartError(input.sessionId, err).errorText,
+    };
+  }
+
   const originalStatus = existing.status;
   const abortController = new AbortController();
   const acquired = sessionManager.tryAcquire(input.sessionId, originalStatus, abortController);
@@ -363,14 +378,11 @@ export async function executeClaudeCodeReply(
   }
 
   const session = acquired;
-  const normalizedCwd = normalizeAndAssertCwd(session.cwd, "session cwd");
-  const options = buildOptions(session);
-  options.cwd = normalizedCwd;
-  const resolvedDefaultExecutable =
-    options.pathToClaudeCodeExecutable ?? getDefaultClaudeExecutablePath();
-  if (resolvedDefaultExecutable !== undefined) {
-    options.pathToClaudeCodeExecutable = resolvedDefaultExecutable;
-  }
+  const options = buildOptions({
+    ...session,
+    cwd: normalizedCwd,
+    pathToClaudeCodeExecutable: explicitClaudeExecutable,
+  });
   if (input.forkSession) options.forkSession = true;
 
   if (input.forkSession && !sessionManager.hasCapacityFor(1)) {
@@ -386,14 +398,8 @@ export async function executeClaudeCodeReply(
     {
       effort: input.effort ?? session.effort,
       thinking: input.thinking ?? session.thinking,
-      pathToClaudeCodeExecutable:
-        session.pathToClaudeCodeExecutable ?? resolvedDefaultExecutable ?? undefined,
+      pathToClaudeCodeExecutable: explicitClaudeExecutable,
     };
-  if (session.pathToClaudeCodeExecutable === undefined && resolvedDefaultExecutable !== undefined) {
-    sessionManager.update(input.sessionId, {
-      pathToClaudeCodeExecutable: resolvedDefaultExecutable,
-    });
-  }
   if (input.effort !== undefined) options.effort = input.effort;
   if (input.thinking !== undefined) options.thinking = input.thinking;
   if (!input.forkSession && (input.effort !== undefined || input.thinking !== undefined)) {

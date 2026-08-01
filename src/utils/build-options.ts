@@ -44,7 +44,6 @@ export interface OptionSource {
   agent?: string;
   mcpServers?: Record<string, McpServerConfig>;
   sandbox?: SandboxSettings;
-  fallbackModel?: string;
   enableFileCheckpointing?: boolean;
   toolConfig?: ToolConfig;
   includePartialMessages?: boolean;
@@ -89,7 +88,6 @@ export function buildOptions(src: OptionSource): Partial<Options> {
   if (src.agent !== undefined) opts.agent = src.agent;
   if (src.mcpServers !== undefined) opts.mcpServers = src.mcpServers as Options["mcpServers"];
   if (src.sandbox !== undefined) opts.sandbox = src.sandbox;
-  if (src.fallbackModel !== undefined) opts.fallbackModel = src.fallbackModel;
   if (src.enableFileCheckpointing !== undefined)
     opts.enableFileCheckpointing = src.enableFileCheckpointing;
   if (src.toolConfig !== undefined) opts.toolConfig = src.toolConfig;

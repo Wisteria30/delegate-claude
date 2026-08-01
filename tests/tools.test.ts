@@ -28,10 +28,6 @@ import { executeClaudeCode } from "../src/tools/claude-code.js";
 import { executeClaudeCodeReply } from "../src/tools/claude-code-reply.js";
 import { ToolDiscoveryCache } from "../src/tools/tool-discovery.js";
 import { computeResumeToken } from "../src/utils/resume-token.js";
-import {
-  DEFAULT_CLAUDE_COMMAND_ENV,
-  DEFAULT_CLAUDE_PATH_ENV,
-} from "../src/utils/claude-executable.js";
 
 const mockQuery = vi.mocked(query);
 type QueryReturn = ReturnType<typeof query>;
@@ -150,21 +146,20 @@ describe("executeClaudeCode (async)", () => {
     const stored = manager.getResult("sess-123");
     expect(stored?.type).toBe("result");
     expect(stored?.result.result).toBe("Fixed the bug!");
+    const call = mockQuery.mock.calls[0]![0] as { options: Record<string, unknown> };
+    expect(call.options).not.toHaveProperty("pathToClaudeCodeExecutable");
   });
 
-  it("should inject the auto-detected default Claude executable into start options", async () => {
-    const fixture = createExecutableFixture("claude-internal");
-    vi.stubEnv("PATH", fixture.dir);
-    vi.stubEnv(DEFAULT_CLAUDE_COMMAND_ENV, "");
-    vi.stubEnv(DEFAULT_CLAUDE_PATH_ENV, "");
+  it("should pass only the explicitly selected Claude Code executable", async () => {
+    const fixture = createExecutableFixture("claude");
     try {
       mockQuery.mockReturnValue(
         (async function* () {
           yield {
             type: "system",
             subtype: "init",
-            session_id: "sess-auto-exec",
-            uuid: "u-auto-exec-init",
+            session_id: "sess-explicit-exec",
+            uuid: "u-explicit-exec-init",
             cwd: "/tmp",
             tools: ["Read"],
             claude_code_version: "x",
@@ -185,8 +180,8 @@ describe("executeClaudeCode (async)", () => {
             num_turns: 1,
             total_cost_usd: 0,
             is_error: false,
-            uuid: "u-auto-exec-res",
-            session_id: "sess-auto-exec",
+            uuid: "u-explicit-exec-res",
+            session_id: "sess-explicit-exec",
             duration_api_ms: 1,
             stop_reason: null,
             usage: {},
@@ -196,13 +191,45 @@ describe("executeClaudeCode (async)", () => {
         })() as unknown as QueryReturn
       );
 
-      const result = await executeClaudeCode({ prompt: "Test" }, manager, "/tmp", toolCache);
+      const result = await executeClaudeCode(
+        {
+          prompt: "Test",
+          advanced: { pathToClaudeCodeExecutable: fixture.filePath },
+        },
+        manager,
+        "/tmp",
+        toolCache
+      );
       expect(result.status).toBe("running");
       const call = mockQuery.mock.calls[0]![0] as { options: Record<string, unknown> };
       expect(call.options.pathToClaudeCodeExecutable).toBe(path.normalize(fixture.filePath));
+      expect(manager.get("sess-explicit-exec")?.pathToClaudeCodeExecutable).toBe(
+        path.normalize(fixture.filePath)
+      );
     } finally {
       rmSync(fixture.dir, { recursive: true, force: true });
     }
+  });
+
+  it("should reject an invalid explicit executable before calling query()", async () => {
+    const missingPath = path.join(os.tmpdir(), `missing-claude-${Date.now()}-${Math.random()}`);
+
+    const result = await executeClaudeCode(
+      {
+        prompt: "Test",
+        advanced: { pathToClaudeCodeExecutable: missingPath },
+      },
+      manager,
+      "/tmp",
+      toolCache
+    );
+
+    expect(result.status).toBe("error");
+    if (result.status === "error") {
+      expect(result.error).toContain("INVALID_ARGUMENT");
+      expect(result.error).toContain("not a launchable file");
+    }
+    expect(mockQuery).not.toHaveBeenCalled();
   });
 
   it("should return an error when session limit is reached", async () => {
@@ -259,6 +286,7 @@ describe("executeClaudeCode (async)", () => {
     await executeClaudeCode(
       {
         prompt: "Test",
+        model: "claude-fable-5",
         effort: "max",
         thinking: { type: "adaptive" },
         advanced: {
@@ -276,6 +304,7 @@ describe("executeClaudeCode (async)", () => {
     expect(mockQuery).toHaveBeenCalledTimes(1);
     const call = mockQuery.mock.calls[0]![0] as { options: Record<string, unknown> };
     expect(call.options.additionalDirectories).toEqual(["/extra"]);
+    expect(call.options.model).toBe("claude-fable-5");
     expect(call.options.persistSession).toBe(false);
     expect(call.options.thinking).toEqual({ type: "adaptive" });
     expect(call.options.outputFormat).toEqual({ type: "json_schema", schema: { type: "object" } });
@@ -529,10 +558,6 @@ describe("executeClaudeCodeReply (async)", () => {
   it("should disk-resume when enabled and session is missing", async () => {
     vi.stubEnv("CLAUDE_CODE_MCP_ALLOW_DISK_RESUME", "1");
     vi.stubEnv("CLAUDE_CODE_MCP_RESUME_SECRET", "test-secret");
-    const fixture = createExecutableFixture("claude-internal");
-    vi.stubEnv("PATH", fixture.dir);
-    vi.stubEnv(DEFAULT_CLAUDE_COMMAND_ENV, "");
-    vi.stubEnv(DEFAULT_CLAUDE_PATH_ENV, "");
     try {
       mockQuery.mockReturnValue(
         (async function* () {
@@ -570,9 +595,9 @@ describe("executeClaudeCodeReply (async)", () => {
       expect(res.status).toBe("running");
       expect(manager.get("disk-1")).toBeDefined();
       const call = mockQuery.mock.calls[0]![0] as { options: Record<string, unknown> };
-      expect(call.options.pathToClaudeCodeExecutable).toBe(path.normalize(fixture.filePath));
+      expect(call.options).not.toHaveProperty("pathToClaudeCodeExecutable");
     } finally {
-      rmSync(fixture.dir, { recursive: true, force: true });
+      vi.unstubAllEnvs();
     }
   });
 
@@ -665,31 +690,21 @@ describe("executeClaudeCodeReply (async)", () => {
     expect(manager.get("idle")!.status).toBe("idle");
   });
 
-  it("should inject the default Claude executable when resuming an idle session without one", async () => {
-    const fixture = createExecutableFixture("claude-internal");
-    vi.stubEnv("PATH", fixture.dir);
-    vi.stubEnv(DEFAULT_CLAUDE_COMMAND_ENV, "");
-    vi.stubEnv(DEFAULT_CLAUDE_PATH_ENV, "");
-    try {
-      manager.create({ sessionId: "idle-default-exec", cwd: "/tmp" });
-      manager.update("idle-default-exec", { status: "idle" });
-      mockQuery.mockReturnValue(successStream("idle-default-exec"));
+  it("should keep the SDK executable path option absent when resuming a default session", async () => {
+    manager.create({ sessionId: "idle-default-exec", cwd: "/tmp" });
+    manager.update("idle-default-exec", { status: "idle" });
+    mockQuery.mockReturnValue(successStream("idle-default-exec"));
 
-      const res = await executeClaudeCodeReply(
-        { sessionId: "idle-default-exec", prompt: "Hi" },
-        manager,
-        toolCache
-      );
+    const res = await executeClaudeCodeReply(
+      { sessionId: "idle-default-exec", prompt: "Hi" },
+      manager,
+      toolCache
+    );
 
-      expect(res.status).toBe("running");
-      const call = mockQuery.mock.calls[0]![0] as { options: Record<string, unknown> };
-      expect(call.options.pathToClaudeCodeExecutable).toBe(path.normalize(fixture.filePath));
-      expect(manager.get("idle-default-exec")!.pathToClaudeCodeExecutable).toBe(
-        path.normalize(fixture.filePath)
-      );
-    } finally {
-      rmSync(fixture.dir, { recursive: true, force: true });
-    }
+    expect(res.status).toBe("running");
+    const call = mockQuery.mock.calls[0]![0] as { options: Record<string, unknown> };
+    expect(call.options).not.toHaveProperty("pathToClaudeCodeExecutable");
+    expect(manager.get("idle-default-exec")!.pathToClaudeCodeExecutable).toBeUndefined();
   });
 
   it("should pass effort/thinking overrides to query() and persist them on non-fork replies", async () => {

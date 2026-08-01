@@ -1,5 +1,6 @@
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
+import { readFile } from "node:fs/promises";
 import path from "node:path";
 
 function transportConfig() {
@@ -37,15 +38,30 @@ async function main() {
   try {
     await client.connect(transport);
 
+    const serverVersion = client.getServerVersion();
+    assert(serverVersion?.name === "delegate-claude", "server name is not delegate-claude");
+    assert(serverVersion?.title === "delegate-claude", "server title is not delegate-claude");
+    assert(
+      serverVersion?.websiteUrl === "https://github.com/Wisteria30/delegate-claude",
+      "server websiteUrl is not the delegate-claude repository"
+    );
+
+    const packageJson = JSON.parse(await readFile(path.join(process.cwd(), "package.json"), "utf8"));
+    assert(packageJson.name === "@wisteria30/delegate-claude", "npm package name mismatch");
+    assert(packageJson.bin?.["delegate-claude"] === "dist/index.js", "npm executable mismatch");
+
     const listed = await client.listTools();
     const toolNames = listed.tools.map((tool) => tool.name);
     const claudeCode = listed.tools.find((tool) => tool.name === "claude_code");
     const claudeCodeCheck = listed.tools.find((tool) => tool.name === "claude_code_check");
 
-    assert(toolNames.includes("claude_code"), "claude_code tool missing");
-    assert(toolNames.includes("claude_code_reply"), "claude_code_reply tool missing");
-    assert(toolNames.includes("claude_code_session"), "claude_code_session tool missing");
-    assert(toolNames.includes("claude_code_check"), "claude_code_check tool missing");
+    assert(
+      JSON.stringify([...toolNames].sort()) ===
+        JSON.stringify(
+          ["claude_code", "claude_code_check", "claude_code_reply", "claude_code_session"].sort()
+        ),
+      `unexpected MCP tool set: ${toolNames.join(", ")}`
+    );
     assert(
       claudeCode?.description?.includes("No final result is returned here"),
       "claude_code description lost async result guidance"
@@ -61,16 +77,16 @@ async function main() {
 
     const resources = await client.listResources();
     const resourceUris = resources.resources.map((resource) => resource.uri);
-    assert(resourceUris.includes("claude-code-mcp:///quickstart"), "quickstart resource missing");
-    assert(resourceUris.includes("claude-code-mcp:///gotchas"), "gotchas resource missing");
-    assert(resourceUris.includes("claude-code-mcp:///compat-report"), "compat-report resource missing");
+    assert(resourceUris.includes("delegate-claude:///quickstart"), "quickstart resource missing");
+    assert(resourceUris.includes("delegate-claude:///gotchas"), "gotchas resource missing");
+    assert(resourceUris.includes("delegate-claude:///compat-report"), "compat-report resource missing");
 
     const quickstartText = getTextContent(
-      await client.readResource({ uri: "claude-code-mcp:///quickstart" })
+      await client.readResource({ uri: "delegate-claude:///quickstart" })
     );
-    const gotchasText = getTextContent(await client.readResource({ uri: "claude-code-mcp:///gotchas" }));
+    const gotchasText = getTextContent(await client.readResource({ uri: "delegate-claude:///gotchas" }));
     const compatText = getTextContent(
-      await client.readResource({ uri: "claude-code-mcp:///compat-report" })
+      await client.readResource({ uri: "delegate-claude:///compat-report" })
     );
     const compat = JSON.parse(compatText || "{}");
 
@@ -96,6 +112,11 @@ async function main() {
           ok: true,
           toolCount: listed.tools.length,
           resourceCount: resources.resources.length,
+          identity: {
+            package: packageJson.name,
+            executable: "delegate-claude",
+            server: serverVersion?.name,
+          },
           checked: {
             toolDescriptions: ["claude_code", "claude_code_check"],
             resources: ["quickstart", "gotchas", "compat-report"],

@@ -25,7 +25,7 @@ import {
   normalizeWindowsPathArray,
   normalizeWindowsPathLike,
 } from "../utils/normalize-windows-path.js";
-import { getDefaultClaudeExecutablePath } from "../utils/claude-executable.js";
+import { resolveExplicitClaudeExecutable } from "../utils/claude-executable.js";
 
 /**
  * Low-frequency / SDK-passthrough options grouped under `advanced`.
@@ -43,7 +43,6 @@ export interface ClaudeCodeAdvancedOptions {
   pathToClaudeCodeExecutable?: string;
   mcpServers?: Record<string, McpServerConfig>;
   sandbox?: SandboxSettings;
-  fallbackModel?: string;
   enableFileCheckpointing?: boolean;
   toolConfig?: ToolConfig;
   includePartialMessages?: boolean;
@@ -150,21 +149,22 @@ export async function executeClaudeCode(
     effort: input.effort,
     thinking: input.thinking,
   };
-  const normalizedFlat = {
-    ...flat,
-    cwd: normalizeWindowsPathLike(flat.cwd),
-    additionalDirectories:
-      flat.additionalDirectories !== undefined
-        ? normalizeWindowsPathArray(flat.additionalDirectories)
-        : undefined,
-    debugFile: flat.debugFile !== undefined ? normalizeWindowsPathLike(flat.debugFile) : undefined,
-    pathToClaudeCodeExecutable:
-      flat.pathToClaudeCodeExecutable !== undefined
-        ? normalizeWindowsPathLike(flat.pathToClaudeCodeExecutable)
-        : getDefaultClaudeExecutablePath(),
-  };
-
   try {
+    const normalizedFlat = {
+      ...flat,
+      cwd: normalizedCwd,
+      additionalDirectories:
+        flat.additionalDirectories !== undefined
+          ? normalizeWindowsPathArray(flat.additionalDirectories)
+          : undefined,
+      debugFile:
+        flat.debugFile !== undefined ? normalizeWindowsPathLike(flat.debugFile) : undefined,
+      pathToClaudeCodeExecutable:
+        flat.pathToClaudeCodeExecutable !== undefined
+          ? resolveExplicitClaudeExecutable(flat.pathToClaudeCodeExecutable, normalizedCwd)
+          : undefined,
+    };
+
     const handle = consumeQuery({
       mode: "start",
       prompt: input.prompt,

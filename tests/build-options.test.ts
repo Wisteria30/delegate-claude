@@ -45,6 +45,7 @@ describe("buildOptions", () => {
     expect("disallowedTools" in opts).toBe(false);
     expect("strictAllowedTools" in opts).toBe(false);
     expect("model" in opts).toBe(false);
+    expect("pathToClaudeCodeExecutable" in opts).toBe(false);
   });
 
   it("keeps strictAllowedTools out of SDK options", () => {
@@ -67,7 +68,7 @@ describe("buildOptions", () => {
     expect(opts.env?.ONLY_USER).toBe("x");
   });
 
-  it("passes through SDK 0.2.81 option fields", () => {
+  it("passes through SDK 0.3.220 option fields", () => {
     const opts = buildOptions({
       cwd: "/tmp",
       toolConfig: { askUserQuestion: { previewFormat: "html" } },
