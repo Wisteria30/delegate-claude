@@ -1369,8 +1369,7 @@ describe("consumeQuery", () => {
           toolUseID: "tu-allowed",
           requestId: "req-allowed",
         });
-        expect(result?.behavior).toBe("allow");
-        expect((result as { updatedInput?: unknown }).updatedInput).toEqual(toolInput);
+        expect(result).toEqual({ behavior: "allow", updatedInput: toolInput });
 
         yield {
           type: "result",
