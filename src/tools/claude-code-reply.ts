@@ -35,6 +35,7 @@ import {
 } from "../utils/normalize-windows-path.js";
 import { resolveExplicitClaudeExecutable } from "../utils/claude-executable.js";
 import { normalizeAndAssertWorkingDirectory } from "../utils/working-directory.js";
+import { toToolErrorText } from "../utils/tool-error.js";
 
 /** Disk resume fallback configuration — only used when the in-memory session is missing. */
 export interface DiskResumeConfig {
@@ -110,10 +111,7 @@ function toStartError(
   };
   errorText: string;
 } {
-  const message = err instanceof Error ? err.message : String(err);
-  const errorText = message.includes("Error [")
-    ? message
-    : `Error [${ErrorCode.INTERNAL}]: ${message}`;
+  const errorText = toToolErrorText(err);
   return {
     agentResult: {
       sessionId,

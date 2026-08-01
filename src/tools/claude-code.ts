@@ -26,6 +26,7 @@ import {
 } from "../utils/normalize-windows-path.js";
 import { resolveExplicitClaudeExecutable } from "../utils/claude-executable.js";
 import { normalizeAndAssertWorkingDirectory } from "../utils/working-directory.js";
+import { toToolErrorText } from "../utils/tool-error.js";
 
 /**
  * Low-frequency / SDK-passthrough options grouped under `advanced`.
@@ -78,11 +79,6 @@ export type ClaudeCodeStartResult =
   | SessionStartResult
   | { sessionId: string; status: "error"; error: string };
 
-function toStartErrorText(err: unknown): string {
-  const message = err instanceof Error ? err.message : String(err);
-  return message.includes("Error [") ? message : `Error [${ErrorCode.INTERNAL}]: ${message}`;
-}
-
 export async function executeClaudeCode(
   input: ClaudeCodeInput,
   sessionManager: SessionManager,
@@ -109,7 +105,7 @@ export async function executeClaudeCode(
       return {
         sessionId: "",
         status: "error",
-        error: toStartErrorText(err),
+        error: toToolErrorText(err),
       };
     }
   } else {
@@ -199,7 +195,7 @@ export async function executeClaudeCode(
     return {
       sessionId: "",
       status: "error",
-      error: toStartErrorText(err),
+      error: toToolErrorText(err),
     };
   }
 }
