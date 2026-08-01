@@ -15,6 +15,8 @@ import type {
   ThinkingConfig,
   ToolConfig,
   ToolsConfig,
+  PermissionMode,
+  StructuredError,
 } from "../types.js";
 import { ErrorCode, DEFAULT_POLL_INTERVAL_RUNNING_MS } from "../types.js";
 import { consumeQuery } from "./query-consumer.js";
@@ -35,7 +37,13 @@ import {
 } from "../utils/normalize-windows-path.js";
 import { resolveExplicitClaudeExecutable } from "../utils/claude-executable.js";
 import { normalizeAndAssertWorkingDirectory } from "../utils/working-directory.js";
-import { toToolErrorText } from "../utils/tool-error.js";
+import { toToolError } from "../utils/tool-error.js";
+import { validatePermissionMode } from "../utils/permission-mode.js";
+import {
+  classifySdkStartError,
+  formatStructuredError,
+  structuredError,
+} from "../utils/structured-error.js";
 
 /** Disk resume fallback configuration — only used when the in-memory session is missing. */
 export interface DiskResumeConfig {
@@ -47,6 +55,8 @@ export interface DiskResumeConfig {
   persistSession?: boolean;
   maxTurns?: number;
   model?: string;
+  permissionMode?: PermissionMode;
+  allowDangerouslySkipPermissions?: boolean;
   systemPrompt?: SystemPrompt;
   agents?: Record<string, AgentDefinition>;
   agent?: string;
@@ -78,6 +88,8 @@ export interface ClaudeCodeReplyInput {
   sessionId: string;
   prompt: string;
   forkSession?: boolean;
+  permissionMode?: PermissionMode;
+  allowDangerouslySkipPermissions?: boolean;
   effort?: EffortLevel;
   thinking?: ThinkingConfig;
 
@@ -95,7 +107,7 @@ export interface ClaudeCodeReplyInput {
 
 export type ClaudeCodeReplyStartResult =
   | SessionStartResult
-  | { sessionId: string; status: "error"; error: string };
+  | { sessionId: string; status: "error"; error: StructuredError };
 
 function toStartError(
   sessionId: string,
@@ -105,29 +117,34 @@ function toStartError(
     sessionId: string;
     result: string;
     isError: true;
+    error: StructuredError;
     durationMs: 0;
     numTurns: 0;
     totalCostUsd: 0;
   };
-  errorText: string;
+  error: StructuredError;
 } {
-  const errorText = toToolErrorText(err);
+  const error = toToolError(err, ErrorCode.SDK_START_FAILED);
   return {
     agentResult: {
       sessionId,
-      result: errorText,
+      result: formatStructuredError(error),
       isError: true,
+      error,
       durationMs: 0,
       numTurns: 0,
       totalCostUsd: 0,
     },
-    errorText,
+    error,
   };
 }
 
 function buildDiskResumeSource(
   dr: DiskResumeConfig,
-  overrides: Pick<ClaudeCodeReplyInput, "effort" | "thinking">
+  overrides: Pick<
+    ClaudeCodeReplyInput,
+    "effort" | "thinking" | "permissionMode" | "allowDangerouslySkipPermissions"
+  >
 ): OptionSource {
   if (dr.cwd === undefined || typeof dr.cwd !== "string" || dr.cwd.trim() === "") {
     throw new Error(`Error [${ErrorCode.INVALID_ARGUMENT}]: cwd must be provided for disk resume.`);
@@ -151,6 +168,14 @@ function buildDiskResumeSource(
   };
   if (overrides.effort !== undefined) normalizedSource.effort = overrides.effort;
   if (overrides.thinking !== undefined) normalizedSource.thinking = overrides.thinking;
+  const permission = validatePermissionMode(
+    overrides.permissionMode,
+    overrides.allowDangerouslySkipPermissions,
+    dr.permissionMode ?? "default",
+    dr.allowDangerouslySkipPermissions ?? false
+  );
+  normalizedSource.permissionMode = permission.permissionMode;
+  normalizedSource.allowDangerouslySkipPermissions = permission.allowDangerouslySkipPermissions;
   return normalizedSource;
 }
 
@@ -169,7 +194,10 @@ export async function executeClaudeCodeReply(
       return {
         sessionId: input.sessionId,
         status: "error",
-        error: `Error [${ErrorCode.RESOURCE_EXHAUSTED}]: Too many sessions (limit: ${sessionManager.getMaxSessions()}).`,
+        error: structuredError(
+          ErrorCode.RESOURCE_EXHAUSTED,
+          `Too many sessions (limit: ${sessionManager.getMaxSessions()}).`
+        ),
       };
     }
 
@@ -178,7 +206,10 @@ export async function executeClaudeCodeReply(
       return {
         sessionId: input.sessionId,
         status: "error",
-        error: `Error [${ErrorCode.SESSION_NOT_FOUND}]: Session '${input.sessionId}' not found or expired.`,
+        error: structuredError(
+          ErrorCode.SESSION_NOT_FOUND,
+          `Session '${input.sessionId}' not found or expired.`
+        ),
       };
     }
 
@@ -188,7 +219,10 @@ export async function executeClaudeCodeReply(
       return {
         sessionId: input.sessionId,
         status: "error",
-        error: `Error [${ErrorCode.PERMISSION_DENIED}]: Disk resume is enabled but CLAUDE_CODE_MCP_RESUME_SECRET is not set.`,
+        error: structuredError(
+          ErrorCode.PERMISSION_DENIED,
+          "Disk resume is enabled but CLAUDE_CODE_MCP_RESUME_SECRET is not set."
+        ),
       };
     }
 
@@ -197,14 +231,20 @@ export async function executeClaudeCodeReply(
       return {
         sessionId: input.sessionId,
         status: "error",
-        error: `Error [${ErrorCode.PERMISSION_DENIED}]: resumeToken is required for disk resume fallback.`,
+        error: structuredError(
+          ErrorCode.PERMISSION_DENIED,
+          "resumeToken is required for disk resume fallback."
+        ),
       };
     }
     if (!isValidResumeToken(input.sessionId, dr.resumeToken, resumeSecrets)) {
       return {
         sessionId: input.sessionId,
         status: "error",
-        error: `Error [${ErrorCode.PERMISSION_DENIED}]: Invalid resumeToken for session '${input.sessionId}'.`,
+        error: structuredError(
+          ErrorCode.PERMISSION_DENIED,
+          `Invalid resumeToken for session '${input.sessionId}'.`
+        ),
       };
     }
 
@@ -216,7 +256,7 @@ export async function executeClaudeCodeReply(
         toSessionCreateParams({
           sessionId: input.sessionId,
           source,
-          permissionMode: "default",
+          permissionMode: source.permissionMode,
           abortController,
         })
       );
@@ -239,7 +279,8 @@ export async function executeClaudeCodeReply(
           },
         });
       } catch (err: unknown) {
-        const { agentResult, errorText } = toStartError(input.sessionId, err);
+        const error = classifySdkStartError(err, source.model);
+        const { agentResult } = toStartError(input.sessionId, error);
         sessionManager.setResult(input.sessionId, {
           type: "error",
           result: agentResult,
@@ -255,17 +296,22 @@ export async function executeClaudeCodeReply(
           abortController: undefined,
           queryInterrupt: undefined,
         });
-        return { sessionId: input.sessionId, status: "error", error: errorText };
+        return { sessionId: input.sessionId, status: "error", error };
       }
 
       return {
         sessionId: input.sessionId,
         status: "running",
         pollInterval: DEFAULT_POLL_INTERVAL_RUNNING_MS,
+        model: sessionManager.get(input.sessionId)?.model,
+        claudeCodeVersion: sessionManager.get(input.sessionId)?.claudeCodeVersion,
+        permissionMode:
+          sessionManager.get(input.sessionId)?.permissionMode ?? source.permissionMode ?? "default",
         resumeToken: computeResumeToken(input.sessionId, resumeSecret),
       };
     } catch (err: unknown) {
-      const { agentResult, errorText } = toStartError(input.sessionId, err);
+      const error = classifySdkStartError(err, input.diskResumeConfig?.model);
+      const { agentResult } = toStartError(input.sessionId, error);
       if (sessionManager.get(input.sessionId)) {
         sessionManager.setResult(input.sessionId, {
           type: "error",
@@ -286,16 +332,23 @@ export async function executeClaudeCodeReply(
       return {
         sessionId: input.sessionId,
         status: "error",
-        error: errorText,
+        error,
       };
     }
   }
 
-  if (existing.status === "running" || existing.status === "waiting_permission") {
+  if (
+    existing.status === "running" ||
+    existing.status === "waiting_permission" ||
+    existing.status === "waiting_user_input"
+  ) {
     return {
       sessionId: input.sessionId,
       status: "error",
-      error: `Error [${ErrorCode.SESSION_BUSY}]: Session is not available (status: ${existing.status}).`,
+      error: structuredError(
+        ErrorCode.SESSION_BUSY,
+        `Session is not available (status: ${existing.status}).`
+      ),
     };
   }
 
@@ -303,7 +356,10 @@ export async function executeClaudeCodeReply(
     return {
       sessionId: input.sessionId,
       status: "error",
-      error: `Error [${ErrorCode.CANCELLED}]: Session '${input.sessionId}' has been cancelled and cannot be resumed.`,
+      error: structuredError(
+        ErrorCode.CANCELLED,
+        `Session '${input.sessionId}' has been cancelled and cannot be resumed.`
+      ),
     };
   }
 
@@ -319,7 +375,7 @@ export async function executeClaudeCodeReply(
     return {
       sessionId: input.sessionId,
       status: "error",
-      error: toStartError(input.sessionId, err).errorText,
+      error: toStartError(input.sessionId, err).error,
     };
   }
 
@@ -332,16 +388,39 @@ export async function executeClaudeCodeReply(
       sessionId: input.sessionId,
       status: "error",
       error: current
-        ? `Error [${ErrorCode.SESSION_BUSY}]: Session is not available (status: ${current.status}).`
-        : `Error [${ErrorCode.SESSION_NOT_FOUND}]: Session '${input.sessionId}' not found or expired.`,
+        ? structuredError(
+            ErrorCode.SESSION_BUSY,
+            `Session is not available (status: ${current.status}).`
+          )
+        : structuredError(
+            ErrorCode.SESSION_NOT_FOUND,
+            `Session '${input.sessionId}' not found or expired.`
+          ),
     };
   }
 
   const session = acquired;
+  let permission: ReturnType<typeof validatePermissionMode>;
+  try {
+    permission = validatePermissionMode(
+      input.permissionMode,
+      input.allowDangerouslySkipPermissions,
+      session.permissionMode,
+      session.allowDangerouslySkipPermissions ?? false
+    );
+  } catch (err: unknown) {
+    sessionManager.update(input.sessionId, {
+      status: originalStatus,
+      abortController: undefined,
+    });
+    return { sessionId: input.sessionId, status: "error", error: toToolError(err) };
+  }
   const options = buildOptions({
     ...session,
     cwd: normalizedCwd,
     pathToClaudeCodeExecutable: explicitClaudeExecutable,
+    permissionMode: permission.permissionMode,
+    allowDangerouslySkipPermissions: permission.allowDangerouslySkipPermissions,
   });
   if (input.forkSession) options.forkSession = true;
 
@@ -350,22 +429,46 @@ export async function executeClaudeCodeReply(
     return {
       sessionId: input.sessionId,
       status: "error",
-      error: `Error [${ErrorCode.RESOURCE_EXHAUSTED}]: Too many sessions (limit: ${sessionManager.getMaxSessions()}).`,
+      error: structuredError(
+        ErrorCode.RESOURCE_EXHAUSTED,
+        `Too many sessions (limit: ${sessionManager.getMaxSessions()}).`
+      ),
     };
   }
 
-  const sourceOverrides: Pick<OptionSource, "effort" | "thinking" | "pathToClaudeCodeExecutable"> =
-    {
-      effort: input.effort ?? session.effort,
-      thinking: input.thinking ?? session.thinking,
-      pathToClaudeCodeExecutable: explicitClaudeExecutable,
-    };
+  const sourceOverrides: Pick<
+    OptionSource,
+    | "effort"
+    | "thinking"
+    | "pathToClaudeCodeExecutable"
+    | "permissionMode"
+    | "allowDangerouslySkipPermissions"
+  > = {
+    effort: input.effort ?? session.effort,
+    thinking: input.thinking ?? session.thinking,
+    pathToClaudeCodeExecutable: explicitClaudeExecutable,
+    permissionMode: permission.permissionMode,
+    allowDangerouslySkipPermissions: permission.allowDangerouslySkipPermissions,
+  };
   if (input.effort !== undefined) options.effort = input.effort;
   if (input.thinking !== undefined) options.thinking = input.thinking;
-  if (!input.forkSession && (input.effort !== undefined || input.thinking !== undefined)) {
-    const patch: Partial<Pick<OptionSource, "effort" | "thinking">> = {};
+  if (
+    !input.forkSession &&
+    (input.effort !== undefined ||
+      input.thinking !== undefined ||
+      input.permissionMode !== undefined ||
+      input.allowDangerouslySkipPermissions !== undefined)
+  ) {
+    const patch: Partial<
+      Pick<
+        OptionSource,
+        "effort" | "thinking" | "permissionMode" | "allowDangerouslySkipPermissions"
+      >
+    > = {};
     if (input.effort !== undefined) patch.effort = input.effort;
     if (input.thinking !== undefined) patch.thinking = input.thinking;
+    patch.permissionMode = permission.permissionMode;
+    patch.allowDangerouslySkipPermissions = permission.allowDangerouslySkipPermissions;
     sessionManager.update(input.sessionId, patch);
   }
 
@@ -398,7 +501,7 @@ export async function executeClaudeCodeReply(
             toSessionCreateParams({
               sessionId: init.session_id,
               source: { ...session, ...sourceOverrides },
-              permissionMode: "default",
+              permissionMode: permission.permissionMode,
               abortController,
               queryInterrupt: () => {
                 handle.interrupt();
@@ -425,19 +528,27 @@ export async function executeClaudeCodeReply(
       return {
         sessionId: input.sessionId,
         status: "error",
-        error: `Error [${ErrorCode.INTERNAL}]: Fork requested but no new session ID received from agent.`,
+        error: structuredError(
+          ErrorCode.SDK_PROTOCOL_ERROR,
+          "Fork requested but no new session ID received from agent."
+        ),
       };
     }
 
     const resumeSecret = getResumeSecret();
+    const resultSession = sessionManager.get(sessionId);
     return {
       sessionId,
       status: "running",
       pollInterval: DEFAULT_POLL_INTERVAL_RUNNING_MS,
+      model: resultSession?.model,
+      claudeCodeVersion: resultSession?.claudeCodeVersion,
+      permissionMode: resultSession?.permissionMode ?? permission.permissionMode,
       resumeToken: resumeSecret ? computeResumeToken(sessionId, resumeSecret) : undefined,
     };
   } catch (err: unknown) {
-    const { agentResult, errorText } = toStartError(input.sessionId, err);
+    const error = classifySdkStartError(err, session.model);
+    const { agentResult } = toStartError(input.sessionId, error);
     if (input.forkSession) {
       sessionManager.update(input.sessionId, {
         status: originalStatus,
@@ -464,7 +575,7 @@ export async function executeClaudeCodeReply(
     return {
       sessionId: input.sessionId,
       status: "error",
-      error: errorText,
+      error,
     };
   }
 }

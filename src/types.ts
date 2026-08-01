@@ -7,6 +7,7 @@
 
 import type {
   FastModeState as SDKFastModeState,
+  EffortLevel as SDKEffortLevel,
   PermissionMode as SDKPermissionMode,
   PermissionResult as SDKPermissionResult,
   PermissionUpdate as SDKPermissionUpdate,
@@ -21,12 +22,19 @@ export const PERMISSION_MODES = [
   "bypassPermissions",
   "plan",
   "dontAsk",
+  "auto",
 ] as const satisfies readonly SDKPermissionMode[];
 export type PermissionMode = SDKPermissionMode;
 
 /** Effort levels */
-export const EFFORT_LEVELS = ["low", "medium", "high", "max"] as const;
-export type EffortLevel = (typeof EFFORT_LEVELS)[number];
+export const EFFORT_LEVELS = [
+  "low",
+  "medium",
+  "high",
+  "xhigh",
+  "max",
+] as const satisfies readonly SDKEffortLevel[];
+export type EffortLevel = SDKEffortLevel;
 
 /** Subagent model identifier (alias or full model ID) */
 export type AgentModel = string;
@@ -36,15 +44,21 @@ export const SESSION_ACTIONS = ["list", "get", "cancel", "interrupt"] as const;
 export type SessionAction = (typeof SESSION_ACTIONS)[number];
 
 /** Session status */
-export type SessionStatus = "idle" | "running" | "waiting_permission" | "cancelled" | "error";
+export type SessionStatus =
+  | "idle"
+  | "running"
+  | "waiting_permission"
+  | "waiting_user_input"
+  | "cancelled"
+  | "error";
 
 export type SystemPrompt = string | { type: "preset"; preset: "claude_code"; append?: string };
 
 export type OutputFormat = { type: "json_schema"; schema: Record<string, unknown> };
 
 export type ThinkingConfig =
-  | { type: "adaptive" }
-  | { type: "enabled"; budgetTokens?: number }
+  | { type: "adaptive"; display?: "summarized" | "omitted" }
+  | { type: "enabled"; budgetTokens?: number; display?: "summarized" | "omitted" }
   | { type: "disabled" };
 
 export type ToolsConfig = string[] | { type: "preset"; preset: "claude_code" };
@@ -90,8 +104,10 @@ export interface SessionInfo {
   totalCostUsd: number;
   cwd: string;
   model?: string;
+  claudeCodeVersion?: string;
   pathToClaudeCodeExecutable?: string;
   permissionMode: PermissionMode;
+  allowDangerouslySkipPermissions?: boolean;
   allowedTools?: string[];
   disallowedTools?: string[];
   strictAllowedTools?: boolean;
@@ -155,6 +171,7 @@ export interface PublicSessionInfo {
   totalTurns: number;
   totalCostUsd: number;
   model?: string;
+  claudeCodeVersion?: string;
   permissionMode: PermissionMode;
   allowedTools?: string[];
   disallowedTools?: string[];
@@ -177,6 +194,7 @@ export interface PublicSessionInfo {
   debug?: boolean;
   lastToolUseId?: string;
   pendingPermissionCount?: number;
+  pendingUserQuestionCount?: number;
   eventCount?: number;
   currentCursor?: number;
   lastEventId?: number;
@@ -203,6 +221,10 @@ export interface AgentResult {
   sessionId: string;
   result: string;
   isError: boolean;
+  model?: string;
+  claudeCodeVersion?: string;
+  permissionMode?: PermissionMode;
+  error?: StructuredError;
   durationMs: number;
   durationApiMs?: number;
   numTurns: number;
@@ -234,7 +256,7 @@ export const DEFAULT_POLL_INTERVAL_RUNNING_MS = 120_000;
  */
 export const DEFAULT_POLL_INTERVAL_WAITING_MS = 1_000;
 
-export const CHECK_ACTIONS = ["poll", "respond_permission"] as const;
+export const CHECK_ACTIONS = ["poll", "respond_permission", "respond_user_input"] as const;
 export type CheckAction = (typeof CHECK_ACTIONS)[number];
 
 export const CHECK_RESPONSE_MODES = ["minimal", "full", "delta_compact"] as const;
@@ -272,6 +294,8 @@ export type SessionEventType =
   | "progress"
   | "permission_request"
   | "permission_result"
+  | "user_question"
+  | "user_question_result"
   | "result"
   | "error";
 
@@ -310,6 +334,28 @@ export interface PermissionRequestRecord {
   expiresAt?: string;
 }
 
+export interface UserQuestionOption {
+  label: string;
+  description: string;
+  preview?: string;
+}
+
+export interface UserQuestion {
+  question: string;
+  header: string;
+  options: UserQuestionOption[];
+  multiSelect: boolean;
+}
+
+export interface UserQuestionRequestRecord {
+  requestId: string;
+  toolUseId: string;
+  questions: UserQuestion[];
+  originalInput: Record<string, unknown>;
+  createdAt: string;
+  expiresAt: string;
+}
+
 export type FinishFn = (result: PermissionResult) => void;
 
 export type FinishSource =
@@ -326,6 +372,9 @@ export interface SessionStartResult {
   sessionId: string;
   status: "running";
   pollInterval: number;
+  model?: string;
+  claudeCodeVersion?: string;
+  permissionMode: PermissionMode;
   resumeToken?: string;
   compatWarnings?: string[];
 }
@@ -356,19 +405,21 @@ export interface CheckResult {
   };
   compatWarnings?: string[];
   actions?: Array<{
-    type: "permission";
+    type: "permission" | "user_question";
     requestId: string;
-    toolName: string;
-    input: Record<string, unknown>;
-    summary: string;
+    toolName?: string;
+    input?: Record<string, unknown>;
+    summary?: string;
     title?: string;
     displayName?: string;
     decisionReason?: string;
     blockedPath?: string;
-    toolUseID: string;
+    toolUseID?: string;
+    toolUseId?: string;
     agentID?: string;
     suggestions?: PermissionUpdate[];
     description?: string;
+    questions?: UserQuestion[];
     createdAt: string;
     timeoutMs?: number;
     expiresAt?: string;
@@ -389,9 +440,23 @@ export enum ErrorCode {
   SESSION_NOT_FOUND = "SESSION_NOT_FOUND",
   SESSION_BUSY = "SESSION_BUSY",
   PERMISSION_REQUEST_NOT_FOUND = "PERMISSION_REQUEST_NOT_FOUND",
+  USER_INPUT_REQUEST_NOT_FOUND = "USER_INPUT_REQUEST_NOT_FOUND",
+  USER_INPUT_SESSION_MISMATCH = "USER_INPUT_SESSION_MISMATCH",
   PERMISSION_DENIED = "PERMISSION_DENIED",
+  MODEL_UNAVAILABLE = "MODEL_UNAVAILABLE",
+  USER_INPUT_TIMEOUT = "USER_INPUT_TIMEOUT",
+  PERMISSION_TIMEOUT = "PERMISSION_TIMEOUT",
+  SDK_START_FAILED = "SDK_START_FAILED",
+  SDK_EXECUTION_FAILED = "SDK_EXECUTION_FAILED",
+  SDK_PROTOCOL_ERROR = "SDK_PROTOCOL_ERROR",
   RESOURCE_EXHAUSTED = "RESOURCE_EXHAUSTED",
   TIMEOUT = "TIMEOUT",
   CANCELLED = "CANCELLED",
   INTERNAL = "INTERNAL",
+}
+
+export interface StructuredError {
+  code: ErrorCode;
+  message: string;
+  recoverable: boolean;
 }

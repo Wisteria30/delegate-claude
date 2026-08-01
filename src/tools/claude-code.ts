@@ -12,6 +12,8 @@ import type {
   SettingSource,
   ThinkingConfig,
   ToolConfig,
+  PermissionMode,
+  StructuredError,
 } from "../types.js";
 import { ErrorCode, DEFAULT_POLL_INTERVAL_RUNNING_MS } from "../types.js";
 import { consumeQuery } from "./query-consumer.js";
@@ -26,7 +28,9 @@ import {
 } from "../utils/normalize-windows-path.js";
 import { resolveExplicitClaudeExecutable } from "../utils/claude-executable.js";
 import { normalizeAndAssertWorkingDirectory } from "../utils/working-directory.js";
-import { toToolErrorText } from "../utils/tool-error.js";
+import { toToolError } from "../utils/tool-error.js";
+import { validatePermissionMode } from "../utils/permission-mode.js";
+import { classifySdkStartError, structuredError } from "../utils/structured-error.js";
 
 /**
  * Low-frequency / SDK-passthrough options grouped under `advanced`.
@@ -66,6 +70,8 @@ export interface ClaudeCodeInput {
   strictAllowedTools?: boolean;
   maxTurns?: number;
   model?: string;
+  permissionMode?: PermissionMode;
+  allowDangerouslySkipPermissions?: boolean;
   effort?: EffortLevel;
   thinking?: ThinkingConfig;
   systemPrompt?: string | { type: "preset"; preset: "claude_code"; append?: string };
@@ -77,7 +83,7 @@ export interface ClaudeCodeInput {
 
 export type ClaudeCodeStartResult =
   | SessionStartResult
-  | { sessionId: string; status: "error"; error: string };
+  | { sessionId: string; status: "error"; error: StructuredError };
 
 export async function executeClaudeCode(
   input: ClaudeCodeInput,
@@ -93,7 +99,7 @@ export async function executeClaudeCode(
     return {
       sessionId: "",
       status: "error",
-      error: `Error [${ErrorCode.INVALID_ARGUMENT}]: cwd must be a non-empty string.`,
+      error: structuredError(ErrorCode.INVALID_ARGUMENT, "cwd must be a non-empty string."),
     };
   }
   let normalizedCwd: string;
@@ -105,7 +111,7 @@ export async function executeClaudeCode(
       return {
         sessionId: "",
         status: "error",
-        error: toToolErrorText(err),
+        error: toToolError(err),
       };
     }
   } else {
@@ -116,7 +122,10 @@ export async function executeClaudeCode(
     return {
       sessionId: "",
       status: "error",
-      error: `Error [${ErrorCode.RESOURCE_EXHAUSTED}]: Too many sessions (limit: ${sessionManager.getMaxSessions()}).`,
+      error: structuredError(
+        ErrorCode.RESOURCE_EXHAUSTED,
+        `Too many sessions (limit: ${sessionManager.getMaxSessions()}).`
+      ),
     };
   }
 
@@ -126,6 +135,16 @@ export async function executeClaudeCode(
   const permissionRequestTimeoutMs = input.permissionRequestTimeoutMs ?? 60_000;
   const sessionInitTimeoutMs = adv.sessionInitTimeoutMs ?? 10_000;
 
+  let permission: ReturnType<typeof validatePermissionMode>;
+  try {
+    permission = validatePermissionMode(
+      input.permissionMode,
+      input.allowDangerouslySkipPermissions
+    );
+  } catch (err: unknown) {
+    return { sessionId: "", status: "error", error: toToolError(err) };
+  }
+
   // Flatten top-level + advanced into a single object for buildOptions / sessionManager.
   const flat = {
     cwd: normalizedCwd,
@@ -134,6 +153,8 @@ export async function executeClaudeCode(
     strictAllowedTools: input.strictAllowedTools ?? adv.strictAllowedTools,
     maxTurns: input.maxTurns,
     model: input.model,
+    permissionMode: permission.permissionMode,
+    allowDangerouslySkipPermissions: permission.allowDangerouslySkipPermissions,
     systemPrompt: input.systemPrompt,
     ...adv,
     effort: input.effort,
@@ -170,7 +191,7 @@ export async function executeClaudeCode(
           toSessionCreateParams({
             sessionId: init.session_id,
             source: normalizedFlat,
-            permissionMode: "default",
+            permissionMode: permission.permissionMode,
             abortController,
             queryInterrupt: () => {
               handle.interrupt();
@@ -185,17 +206,21 @@ export async function executeClaudeCode(
     );
 
     const resumeSecret = getResumeSecret();
+    const session = sessionManager.get(sessionId);
     return {
       sessionId,
       status: "running",
       pollInterval: DEFAULT_POLL_INTERVAL_RUNNING_MS,
+      model: session?.model,
+      claudeCodeVersion: session?.claudeCodeVersion,
+      permissionMode: session?.permissionMode ?? permission.permissionMode,
       resumeToken: resumeSecret ? computeResumeToken(sessionId, resumeSecret) : undefined,
     };
   } catch (err: unknown) {
     return {
       sessionId: "",
       status: "error",
-      error: toToolErrorText(err),
+      error: classifySdkStartError(err, input.model),
     };
   }
 }

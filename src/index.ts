@@ -17,16 +17,19 @@ function summarizeSessions(ctx: ReturnType<typeof createServerContext>): {
   total: number;
   running: number;
   waitingPermission: number;
+  waitingUserInput: number;
   terminal: number;
 } {
   const sessions = ctx.sessionManager.list();
   const running = sessions.filter((s) => s.status === "running").length;
   const waitingPermission = sessions.filter((s) => s.status === "waiting_permission").length;
+  const waitingUserInput = sessions.filter((s) => s.status === "waiting_user_input").length;
   return {
     total: sessions.length,
     running,
     waitingPermission,
-    terminal: sessions.length - running - waitingPermission,
+    waitingUserInput,
+    terminal: sessions.length - running - waitingPermission - waitingUserInput,
   };
 }
 
@@ -87,8 +90,8 @@ async function main(): Promise<void> {
       clearTimeout(forceExitTimer);
     }
   };
-  function handleStdinError(error: Error) {
-    console.error("stdin error:", error);
+  function handleStdinError(_error: Error) {
+    console.error("stdin error observed; shutting down");
     lastExitCode = 1;
     void shutdown("stdin_error");
   }
@@ -96,7 +99,12 @@ async function main(): Promise<void> {
   function hasActiveSessions(): boolean {
     return sessionManager
       .list()
-      .some((s) => s.status === "running" || s.status === "waiting_permission");
+      .some(
+        (s) =>
+          s.status === "running" ||
+          s.status === "waiting_permission" ||
+          s.status === "waiting_user_input"
+      );
   }
 
   const evaluateStdinTermination = () => {
@@ -147,10 +155,10 @@ async function main(): Promise<void> {
 
   const handleUnexpectedError = (error: unknown) => {
     if (isBenignRuntimeError(error)) {
-      console.error("Ignored benign runtime abort:", error);
+      console.error("Ignored benign runtime abort");
       return;
     }
-    console.error("Unhandled runtime error:", error);
+    console.error("Unhandled runtime error; shutting down");
     lastExitCode = 1;
     void shutdown("runtime_error");
   };
@@ -210,7 +218,7 @@ async function main(): Promise<void> {
   console.error(`delegate-claude server started (transport=stdio, cwd: ${serverCwd})`);
 }
 
-main().catch((err) => {
-  console.error("Fatal error:", err);
+main().catch((_err) => {
+  console.error("Fatal server startup error");
   process.exit(1);
 });

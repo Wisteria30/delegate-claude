@@ -17,6 +17,7 @@ export function toSessionCreateParams(input: {
     sessionId: input.sessionId,
     cwd: src.cwd,
     model: src.model,
+    allowDangerouslySkipPermissions: src.allowDangerouslySkipPermissions,
     permissionMode: input.permissionMode,
     allowedTools: src.allowedTools,
     disallowedTools: src.disallowedTools,

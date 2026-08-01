@@ -7,8 +7,10 @@ import type {
   SensitiveSessionInfo,
   SessionInfo,
   SessionAction,
+  StructuredError,
 } from "../types.js";
 import { ErrorCode } from "../types.js";
+import { structuredError } from "../utils/structured-error.js";
 
 export interface ClaudeCodeSessionInput {
   action: SessionAction;
@@ -19,6 +21,7 @@ export interface ClaudeCodeSessionInput {
 export interface SessionResult {
   sessions: Array<PublicSessionInfo | SensitiveSessionInfo>;
   message?: string;
+  error?: StructuredError;
   isError?: boolean;
 }
 
@@ -60,7 +63,7 @@ export function executeClaudeCodeSession(
   if (requestSignal?.aborted) {
     return {
       sessions: [],
-      message: `Error [${ErrorCode.CANCELLED}]: request was cancelled.`,
+      error: structuredError(ErrorCode.CANCELLED, "Request was cancelled."),
       isError: true,
     };
   }
@@ -75,6 +78,7 @@ export function executeClaudeCodeSession(
     return {
       ...base,
       pendingPermissionCount: sessionManager.getPendingPermissionCount(s.sessionId),
+      pendingUserQuestionCount: sessionManager.getPendingUserQuestionCount(s.sessionId),
       eventCount: sessionManager.getEventCount(s.sessionId),
       currentCursor: sessionManager.getCurrentCursor(s.sessionId),
       lastEventId: sessionManager.getLastEventId(s.sessionId),
@@ -95,7 +99,10 @@ export function executeClaudeCodeSession(
       if (!input.sessionId) {
         return {
           sessions: [],
-          message: `Error [${ErrorCode.INVALID_ARGUMENT}]: sessionId is required for 'get' action.`,
+          error: structuredError(
+            ErrorCode.INVALID_ARGUMENT,
+            "sessionId is required for 'get' action."
+          ),
           isError: true,
         };
       }
@@ -103,7 +110,10 @@ export function executeClaudeCodeSession(
       if (!session) {
         return {
           sessions: [],
-          message: `Error [${ErrorCode.SESSION_NOT_FOUND}]: Session '${input.sessionId}' not found.`,
+          error: structuredError(
+            ErrorCode.SESSION_NOT_FOUND,
+            `Session '${input.sessionId}' not found.`
+          ),
           isError: true,
         };
       }
@@ -114,7 +124,10 @@ export function executeClaudeCodeSession(
       if (!input.sessionId) {
         return {
           sessions: [],
-          message: `Error [${ErrorCode.INVALID_ARGUMENT}]: sessionId is required for 'cancel' action.`,
+          error: structuredError(
+            ErrorCode.INVALID_ARGUMENT,
+            "sessionId is required for 'cancel' action."
+          ),
           isError: true,
         };
       }
@@ -127,13 +140,19 @@ export function executeClaudeCodeSession(
         if (!session) {
           return {
             sessions: [],
-            message: `Error [${ErrorCode.SESSION_NOT_FOUND}]: Session '${input.sessionId}' not found.`,
+            error: structuredError(
+              ErrorCode.SESSION_NOT_FOUND,
+              `Session '${input.sessionId}' not found.`
+            ),
             isError: true,
           };
         }
         return {
           sessions: [toSessionJson(session)],
-          message: `Error [${ErrorCode.INVALID_ARGUMENT}]: Session '${input.sessionId}' is not running (status: ${session.status}).`,
+          error: structuredError(
+            ErrorCode.INVALID_ARGUMENT,
+            `Session '${input.sessionId}' is not running (status: ${session.status}).`
+          ),
           isError: true,
         };
       }
@@ -148,7 +167,10 @@ export function executeClaudeCodeSession(
       if (!input.sessionId) {
         return {
           sessions: [],
-          message: `Error [${ErrorCode.INVALID_ARGUMENT}]: sessionId is required for 'interrupt' action.`,
+          error: structuredError(
+            ErrorCode.INVALID_ARGUMENT,
+            "sessionId is required for 'interrupt' action."
+          ),
           isError: true,
         };
       }
@@ -161,13 +183,19 @@ export function executeClaudeCodeSession(
         if (!session) {
           return {
             sessions: [],
-            message: `Error [${ErrorCode.SESSION_NOT_FOUND}]: Session '${input.sessionId}' not found.`,
+            error: structuredError(
+              ErrorCode.SESSION_NOT_FOUND,
+              `Session '${input.sessionId}' not found.`
+            ),
             isError: true,
           };
         }
         return {
           sessions: [toSessionJson(session)],
-          message: `Error [${ErrorCode.INVALID_ARGUMENT}]: Session '${input.sessionId}' is not running (status: ${session.status}).`,
+          error: structuredError(
+            ErrorCode.INVALID_ARGUMENT,
+            `Session '${input.sessionId}' is not running (status: ${session.status}).`
+          ),
           isError: true,
         };
       }
@@ -181,7 +209,10 @@ export function executeClaudeCodeSession(
     default:
       return {
         sessions: [],
-        message: `Error [${ErrorCode.INVALID_ARGUMENT}]: Unknown action '${input.action}'. Use 'list', 'get', 'cancel', or 'interrupt'.`,
+        error: structuredError(
+          ErrorCode.INVALID_ARGUMENT,
+          `Unknown action '${input.action}'. Use 'list', 'get', 'cancel', or 'interrupt'.`
+        ),
         isError: true,
       };
   }

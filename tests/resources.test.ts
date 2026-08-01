@@ -84,7 +84,7 @@ describe("Resources", () => {
       };
       expect(info.name).toBe("delegate-claude");
       expect(typeof info.version).toBe("string");
-      expect(info.schemaVersion).toBe("1.5");
+      expect(info.schemaVersion).toBe("1.6");
       expect(typeof info.etag).toBe("string");
       expect(typeof info.updatedAt).toBe("string");
       expect(info.capabilities?.resources).toBe(true);
@@ -152,7 +152,8 @@ describe("Resources", () => {
       expect(quickstartText).toContain("Poll frequency");
       expect(quickstartText).toContain("existing `sessionId`");
       expect(quickstartText).toContain("final result arrives later via polling");
-      expect(quickstartText).toContain("`respond_user_input` is not supported");
+      expect(quickstartText).toContain("respond_user_input");
+      expect(quickstartText).toContain("bypassPermissions");
 
       const errorsRes = await client.readResource({ uri: "delegate-claude:///errors" });
       expect(errorsRes.contents[0]?.mimeType).toBe("application/json");
@@ -161,7 +162,11 @@ describe("Resources", () => {
         errorsContent && "text" in errorsContent && typeof errorsContent.text === "string"
           ? errorsContent.text
           : "{}";
-      const errorsJson = JSON.parse(errorsText) as { codes?: unknown[]; hints?: unknown };
+      const errorsJson = JSON.parse(errorsText) as {
+        codes?: unknown[];
+        hints?: unknown;
+        recoverable?: unknown;
+      };
       expect(Array.isArray(errorsJson.codes)).toBe(true);
       expect(errorsJson.codes).toEqual(
         expect.arrayContaining([
@@ -177,6 +182,9 @@ describe("Resources", () => {
       expect(typeof hints[ErrorCode.INVALID_ARGUMENT]).toBe("string");
       expect(typeof hints[ErrorCode.SESSION_NOT_FOUND]).toBe("string");
       expect(typeof hints[ErrorCode.INTERNAL]).toBe("string");
+      const recoverable = errorsJson.recoverable as Record<string, unknown>;
+      expect(recoverable[ErrorCode.USER_INPUT_TIMEOUT]).toBe(true);
+      expect(recoverable[ErrorCode.SDK_PROTOCOL_ERROR]).toBe(false);
 
       const compatRes = await client.readResource({ uri: "delegate-claude:///compat-report" });
       expect(compatRes.contents[0]?.mimeType).toBe("application/json");
@@ -216,7 +224,7 @@ describe("Resources", () => {
       };
       expect(compat.samePlatformRequired).toBe(true);
       expect(compat.transport).toBe("stdio");
-      expect(compat.schemaVersion).toBe("1.5");
+      expect(compat.schemaVersion).toBe("1.6");
       expect(typeof compat.packageVersion).toBe("string");
       expect(typeof compat.limits?.eventBuffer?.maxSize).toBe("number");
       expect(typeof compat.limits?.eventBuffer?.hardMaxSize).toBe("number");
@@ -231,7 +239,7 @@ describe("Resources", () => {
       expect(compat.features?.resourceTemplates).toBe(true);
       expect(compat.features?.sessionInterrupt).toBe(true);
       expect(compat.features?.allowForSessionDecision).toBe(true);
-      expect(compat.features?.respondUserInput).toBe(false);
+      expect(compat.features?.respondUserInput).toBe(true);
       expect(Array.isArray(compat.guidance)).toBe(true);
       expect(Array.isArray(compat.resourceTemplates)).toBe(true);
 

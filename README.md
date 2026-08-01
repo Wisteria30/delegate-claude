@@ -27,6 +27,7 @@ In practice, the most important runtime rules are duplicated in the `claude_code
 - **Session management** with resume and fork support
 - **Local settings loaded by default** — automatically reads `~/.claude/settings.json`, `.claude/settings.json`, `.claude/settings.local.json`, and `CLAUDE.md` so the agent behaves like your local Claude Code CLI
 - **Async permissions** — allow/deny lists + explicit approvals via `claude_code_check`
+- **User question relay** — `AskUserQuestion` is returned separately and answered through `claude_code_check`
 - **Custom subagents** — define specialized agents per session
 - **Cost tracking** — per-session turn and cost accounting
 - **Session cancellation** via AbortController
@@ -137,20 +138,22 @@ Start a new Claude Code session. The agent autonomously performs coding tasks: r
 
 Important protocol note: this call starts background work and returns quickly with `sessionId`; it does not return the final result. Callers must poll `claude_code_check(action="poll")`, persist `nextCursor`, and use `claude_code_reply` to continue the same session later.
 
-| Parameter                    | Type             | Required | Description                                                                                                                                                                                                   |
-| ---------------------------- | ---------------- | -------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `prompt`                     | string           | Yes      | Task or question for Claude Code                                                                                                                                                                              |
-| `cwd`                        | string           | No       | Working directory (defaults to server cwd)                                                                                                                                                                    |
-| `allowedTools`               | string[]         | No       | Auto-approved tool names. Default: `[]` (none). This is not a strict allowlist unless `strictAllowedTools=true`. Example: `["Bash", "Read", "Write", "Edit"]`                                                 |
-| `strictAllowedTools`         | boolean          | No       | Server-side strict allowlist toggle. When `true`, tools outside `allowedTools` are denied. Default: `false`                                                                                                   |
-| `disallowedTools`            | string[]         | No       | Forbidden tool names. Default: `[]` (none). SDK behavior: disallowed tools are removed from the model's context. Takes precedence over `allowedTools` and will be denied even if later approved interactively |
-| `maxTurns`                   | number           | No       | Maximum number of agent reasoning steps. Each step may involve one or more tool calls. Default: SDK/Claude Code default                                                                                       |
-| `model`                      | string           | No       | Model to use (e.g. `"claude-sonnet-4-5-20250929"`). Default: SDK/Claude Code default                                                                                                                          |
-| `effort`                     | string           | No       | Effort string: `"low"`, `"medium"`, `"high"`, `"max"`. Default: SDK/Claude Code default                                                                                                                       |
-| `thinking`                   | object           | No       | Thinking config object, not a string: `{ type: "adaptive" }`, `{ type: "enabled", budgetTokens?: N }`, or `{ type: "disabled" }`. Do not pass `"low"`/`"high"` here. Default: SDK/Claude Code default         |
-| `systemPrompt`               | string \| object | No       | Override the agent's system prompt. Default: SDK/Claude Code default. Pass a string for full replacement, or `{ type: "preset", preset: "claude_code", append?: "..." }` to extend the default prompt         |
-| `permissionRequestTimeoutMs` | number           | No       | Timeout in milliseconds waiting for permission decisions, auto-deny on expiry. Default: `60000` (server-clamped to 5min)                                                                                      |
-| `advanced`                   | object           | No       | Advanced/low-frequency parameters (see below)                                                                                                                                                                 |
+| Parameter                         | Type             | Required | Description                                                                                                                                                                                                   |
+| --------------------------------- | ---------------- | -------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `prompt`                          | string           | Yes      | Task or question for Claude Code                                                                                                                                                                              |
+| `cwd`                             | string           | No       | Working directory (defaults to server cwd)                                                                                                                                                                    |
+| `allowedTools`                    | string[]         | No       | Auto-approved tool names. Default: `[]` (none). This is not a strict allowlist unless `strictAllowedTools=true`. Example: `["Bash", "Read", "Write", "Edit"]`                                                 |
+| `strictAllowedTools`              | boolean          | No       | Server-side strict allowlist toggle. When `true`, tools outside `allowedTools` are denied. Default: `false`                                                                                                   |
+| `disallowedTools`                 | string[]         | No       | Forbidden tool names. Default: `[]` (none). SDK behavior: disallowed tools are removed from the model's context. Takes precedence over `allowedTools` and will be denied even if later approved interactively |
+| `maxTurns`                        | number           | No       | Maximum number of agent reasoning steps. Each step may involve one or more tool calls. Default: SDK/Claude Code default                                                                                       |
+| `model`                           | string           | No       | Model to use (e.g. `"claude-sonnet-4-5-20250929"`). Default: SDK/Claude Code default                                                                                                                          |
+| `permissionMode`                  | string           | No       | `"default"`, `"acceptEdits"`, `"bypassPermissions"`, `"plan"`, `"dontAsk"`, or `"auto"`. Default: `"default"`                                                                                                 |
+| `allowDangerouslySkipPermissions` | boolean          | No       | Must be `true` in the same request as `permissionMode="bypassPermissions"`; invalid with every other mode. Default: `false`                                                                                   |
+| `effort`                          | string           | No       | Effort string: `"low"`, `"medium"`, `"high"`, `"xhigh"`, `"max"`. Default: SDK/Claude Code default                                                                                                            |
+| `thinking`                        | object           | No       | SDK thinking config: `{ type: "adaptive", display? }`, `{ type: "enabled", budgetTokens?, display? }`, or `{ type: "disabled" }`. Default: SDK/Claude Code default                                            |
+| `systemPrompt`                    | string \| object | No       | Override the agent's system prompt. Default: SDK/Claude Code default. Pass a string for full replacement, or `{ type: "preset", preset: "claude_code", append?: "..." }` to extend the default prompt         |
+| `permissionRequestTimeoutMs`      | number           | No       | Timeout in milliseconds waiting for permission decisions, auto-deny on expiry. Default: `60000` (server-clamped to 5min)                                                                                      |
+| `advanced`                        | object           | No       | Advanced/low-frequency parameters (see below)                                                                                                                                                                 |
 
 <details>
 <summary><code>advanced</code> object parameters (23 low-frequency parameters)</summary>
@@ -166,7 +169,7 @@ Important protocol note: this call starts background work and returns quickly wi
 | `advanced.betas`                      | string[]           | Beta features (e.g. `["context-1m-2025-08-07"]`). Default: none                                                                                                                                                                         |
 | `advanced.additionalDirectories`      | string[]           | Additional directories the agent can access beyond cwd. Default: none                                                                                                                                                                   |
 | `advanced.outputFormat`               | object             | Structured output config: `{ type: "json_schema", schema: {...} }`. Default: omitted (plain text)                                                                                                                                       |
-| `advanced.pathToClaudeCodeExecutable` | string             | Explicit Claude Code executable path. The server validates and uses only this file when provided. Default: SDK-bundled Claude Code                                                                                                    |
+| `advanced.pathToClaudeCodeExecutable` | string             | Explicit Claude Code executable path. The server validates and uses only this file when provided. Default: SDK-bundled Claude Code                                                                                                      |
 | `advanced.mcpServers`                 | object             | MCP server configurations keyed by server name. Default: none                                                                                                                                                                           |
 | `advanced.sandbox`                    | object             | Sandbox behavior config object. This controls sandbox behavior, not the actual Read/Edit/WebFetch permission rules. Default: SDK/Claude Code default                                                                                    |
 | `advanced.enableFileCheckpointing`    | boolean            | Enable file checkpointing to track file changes during the session. Default: `false`                                                                                                                                                    |
@@ -183,7 +186,7 @@ Important protocol note: this call starts background work and returns quickly wi
 
 </details>
 
-**Returns:** `{ sessionId, status: "running", pollInterval, resumeToken? }`
+**Returns:** `{ sessionId, status: "running", pollInterval, model?, claudeCodeVersion?, permissionMode, resumeToken? }`
 
 Notes:
 
@@ -208,55 +211,59 @@ Continue an existing session by sending a follow-up message. The agent retains f
 
 Important protocol note: prefer `claude_code_reply` over starting a fresh `claude_code` session when you want to continue the same work. This requires a persistent in-memory session, or `diskResumeConfig` when disk resume fallback is enabled.
 
-| Parameter                    | Type    | Required | Description                                                                                                                                                                                                          |
-| ---------------------------- | ------- | -------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `sessionId`                  | string  | Yes      | Session ID from a previous `claude_code` call                                                                                                                                                                        |
-| `prompt`                     | string  | Yes      | Follow-up prompt                                                                                                                                                                                                     |
-| `forkSession`                | boolean | No       | Create a branched copy of this session. Default: `false`                                                                                                                                                             |
-| `effort`                     | string  | No       | Effort string override for this run (and for future replies when not forking): `"low"`, `"medium"`, `"high"`, `"max"`. Default: SDK/Claude Code default                                                              |
-| `thinking`                   | object  | No       | Thinking config object override for this run (and for future replies when not forking): `{ type: "adaptive" }`, `{ type: "enabled", budgetTokens?: N }`, or `{ type: "disabled" }`. Default: SDK/Claude Code default |
-| `permissionRequestTimeoutMs` | number  | No       | Timeout in milliseconds waiting for permission decisions, auto-deny on expiry. Default: `60000` (server-clamped to 5min)                                                                                             |
-| `sessionInitTimeoutMs`       | number  | No       | Fork init timeout in milliseconds (only when `forkSession=true`). Default: `10000`                                                                                                                                   |
-| `diskResumeConfig`           | object  | No       | Disk resume parameters (see below). Used when `CLAUDE_CODE_MCP_ALLOW_DISK_RESUME=1` and in-memory session is missing                                                                                                 |
+| Parameter                         | Type    | Required | Description                                                                                                                                                        |
+| --------------------------------- | ------- | -------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `sessionId`                       | string  | Yes      | Session ID from a previous `claude_code` call                                                                                                                      |
+| `prompt`                          | string  | Yes      | Follow-up prompt                                                                                                                                                   |
+| `forkSession`                     | boolean | No       | Create a branched copy of this session. Default: `false`                                                                                                           |
+| `permissionMode`                  | string  | No       | Permission mode override. Omission inherits the in-memory session value; explicit bypass requires the dangerous flag in the same request                           |
+| `allowDangerouslySkipPermissions` | boolean | No       | Dangerous bypass confirmation. Omission inherits it only when `permissionMode` is also omitted                                                                     |
+| `effort`                          | string  | No       | Effort string override for this run (and for future replies when not forking): `"low"`, `"medium"`, `"high"`, `"xhigh"`, `"max"`. Default: SDK/Claude Code default |
+| `thinking`                        | object  | No       | SDK thinking config override for this run (and future non-fork replies), including optional `display`. Default: SDK/Claude Code default                            |
+| `permissionRequestTimeoutMs`      | number  | No       | Timeout in milliseconds waiting for permission decisions, auto-deny on expiry. Default: `60000` (server-clamped to 5min)                                           |
+| `sessionInitTimeoutMs`            | number  | No       | Fork init timeout in milliseconds (only when `forkSession=true`). Default: `10000`                                                                                 |
+| `diskResumeConfig`                | object  | No       | Disk resume parameters (see below). Used when `CLAUDE_CODE_MCP_ALLOW_DISK_RESUME=1` and in-memory session is missing                                               |
 
 <details>
 <summary><code>diskResumeConfig</code> object parameters (33 disk-resume-only parameters)</summary>
 
-| Parameter                                     | Type               | Description                                                                                                                                          |
-| --------------------------------------------- | ------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `diskResumeConfig.resumeToken`                | string             | Resume token returned by `claude_code` / `claude_code_reply`. Required for disk resume fallback                                                      |
-| `diskResumeConfig.cwd`                        | string             | Working directory. Required for disk resume.                                                                                                         |
-| `diskResumeConfig.allowedTools`               | string[]           | Auto-approved tool names (see `claude_code`). Default: `[]`                                                                                          |
-| `diskResumeConfig.disallowedTools`            | string[]           | Forbidden tool names (see `claude_code`). Default: `[]`                                                                                              |
-| `diskResumeConfig.strictAllowedTools`         | boolean            | Server-side strict allow-list behavior for `allowedTools`. Default: `false`                                                                          |
-| `diskResumeConfig.tools`                      | string[] \| object | Base tool set (see `claude_code`). Default: SDK/Claude Code default                                                                                  |
-| `diskResumeConfig.persistSession`             | boolean            | Persist session history to disk. Default: `true`                                                                                                     |
-| `diskResumeConfig.maxTurns`                   | number             | Maximum number of agent reasoning steps. Default: SDK/Claude Code default                                                                            |
-| `diskResumeConfig.model`                      | string             | Model to use. Default: SDK/Claude Code default                                                                                                       |
-| `diskResumeConfig.systemPrompt`               | string \| object   | Override the agent's system prompt. Default: SDK/Claude Code default                                                                                 |
-| `diskResumeConfig.agents`                     | object             | Custom sub-agent definitions (see `claude_code`). Default: none                                                                                      |
-| `diskResumeConfig.agent`                      | string             | Primary agent name (see `claude_code` tool). Default: omitted                                                                                        |
-| `diskResumeConfig.maxBudgetUsd`               | number             | Maximum budget in USD. Default: SDK/Claude Code default                                                                                              |
-| `diskResumeConfig.effort`                     | string             | Effort level. Default: SDK/Claude Code default                                                                                                       |
-| `diskResumeConfig.betas`                      | string[]           | Beta features. Default: none                                                                                                                         |
-| `diskResumeConfig.additionalDirectories`      | string[]           | Additional directories. Default: none                                                                                                                |
-| `diskResumeConfig.outputFormat`               | object             | Structured output config. Default: omitted (plain text)                                                                                              |
-| `diskResumeConfig.thinking`                   | object             | Thinking config object: `{ type: "adaptive" }`, `{ type: "enabled", budgetTokens?: N }`, or `{ type: "disabled" }`. Default: SDK/Claude Code default |
-| `diskResumeConfig.resumeSessionAt`            | string             | Resume only up to and including a specific message UUID. Default: omitted                                                                            |
-| `diskResumeConfig.pathToClaudeCodeExecutable` | string             | Explicit Claude Code executable path. The server validates and uses only this file when provided. Default: SDK-bundled Claude Code                  |
-| `diskResumeConfig.mcpServers`                 | object             | MCP server configurations keyed by server name. Default: none                                                                                        |
-| `diskResumeConfig.sandbox`                    | object             | Sandbox behavior config object. Default: SDK/Claude Code default                                                                                     |
-| `diskResumeConfig.enableFileCheckpointing`    | boolean            | Enable file checkpointing. Default: `false`                                                                                                          |
-| `diskResumeConfig.toolConfig`                 | object             | Per-tool built-in configuration. Default: none                                                                                                       |
-| `diskResumeConfig.includePartialMessages`     | boolean            | Include intermediate streaming messages. Default: `false`                                                                                            |
-| `diskResumeConfig.promptSuggestions`          | boolean            | Emit post-turn prompt suggestion events (`prompt_suggestion`). Default: `false`                                                                      |
-| `diskResumeConfig.agentProgressSummaries`     | boolean            | Emit AI-generated subagent progress summaries. Default: `false`                                                                                      |
-| `diskResumeConfig.strictMcpConfig`            | boolean            | Strict MCP config validation. Default: `false`                                                                                                       |
-| `diskResumeConfig.settings`                   | string \| object   | Extra Claude Code flag settings (path or inline object), loaded at the highest-priority flag-settings layer. Default: none                           |
-| `diskResumeConfig.settingSources`             | string[]           | Which filesystem settings to load. Default: `["user", "project", "local"]`                                                                           |
-| `diskResumeConfig.debug`                      | boolean            | Debug mode. Default: `false`                                                                                                                         |
-| `diskResumeConfig.debugFile`                  | string             | Debug log file path (implicitly enables debug). Default: omitted                                                                                     |
-| `diskResumeConfig.env`                        | object             | Environment variables merged over `process.env` (user values override). Default: inherit process.env                                                 |
+| Parameter                                          | Type               | Description                                                                                                                                          |
+| -------------------------------------------------- | ------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `diskResumeConfig.resumeToken`                     | string             | Resume token returned by `claude_code` / `claude_code_reply`. Required for disk resume fallback                                                      |
+| `diskResumeConfig.cwd`                             | string             | Working directory. Required for disk resume.                                                                                                         |
+| `diskResumeConfig.allowedTools`                    | string[]           | Auto-approved tool names (see `claude_code`). Default: `[]`                                                                                          |
+| `diskResumeConfig.disallowedTools`                 | string[]           | Forbidden tool names (see `claude_code`). Default: `[]`                                                                                              |
+| `diskResumeConfig.strictAllowedTools`              | boolean            | Server-side strict allow-list behavior for `allowedTools`. Default: `false`                                                                          |
+| `diskResumeConfig.tools`                           | string[] \| object | Base tool set (see `claude_code`). Default: SDK/Claude Code default                                                                                  |
+| `diskResumeConfig.persistSession`                  | boolean            | Persist session history to disk. Default: `true`                                                                                                     |
+| `diskResumeConfig.maxTurns`                        | number             | Maximum number of agent reasoning steps. Default: SDK/Claude Code default                                                                            |
+| `diskResumeConfig.model`                           | string             | Model to use. Default: SDK/Claude Code default                                                                                                       |
+| `diskResumeConfig.permissionMode`                  | string             | Permission mode. Default: `"default"`; explicit bypass requires the dangerous flag in this config                                                    |
+| `diskResumeConfig.allowDangerouslySkipPermissions` | boolean            | Dangerous bypass confirmation. Invalid with non-bypass modes                                                                                         |
+| `diskResumeConfig.systemPrompt`                    | string \| object   | Override the agent's system prompt. Default: SDK/Claude Code default                                                                                 |
+| `diskResumeConfig.agents`                          | object             | Custom sub-agent definitions (see `claude_code`). Default: none                                                                                      |
+| `diskResumeConfig.agent`                           | string             | Primary agent name (see `claude_code` tool). Default: omitted                                                                                        |
+| `diskResumeConfig.maxBudgetUsd`                    | number             | Maximum budget in USD. Default: SDK/Claude Code default                                                                                              |
+| `diskResumeConfig.effort`                          | string             | Effort level. Default: SDK/Claude Code default                                                                                                       |
+| `diskResumeConfig.betas`                           | string[]           | Beta features. Default: none                                                                                                                         |
+| `diskResumeConfig.additionalDirectories`           | string[]           | Additional directories. Default: none                                                                                                                |
+| `diskResumeConfig.outputFormat`                    | object             | Structured output config. Default: omitted (plain text)                                                                                              |
+| `diskResumeConfig.thinking`                        | object             | Thinking config object: `{ type: "adaptive" }`, `{ type: "enabled", budgetTokens?: N }`, or `{ type: "disabled" }`. Default: SDK/Claude Code default |
+| `diskResumeConfig.resumeSessionAt`                 | string             | Resume only up to and including a specific message UUID. Default: omitted                                                                            |
+| `diskResumeConfig.pathToClaudeCodeExecutable`      | string             | Explicit Claude Code executable path. The server validates and uses only this file when provided. Default: SDK-bundled Claude Code                   |
+| `diskResumeConfig.mcpServers`                      | object             | MCP server configurations keyed by server name. Default: none                                                                                        |
+| `diskResumeConfig.sandbox`                         | object             | Sandbox behavior config object. Default: SDK/Claude Code default                                                                                     |
+| `diskResumeConfig.enableFileCheckpointing`         | boolean            | Enable file checkpointing. Default: `false`                                                                                                          |
+| `diskResumeConfig.toolConfig`                      | object             | Per-tool built-in configuration. Default: none                                                                                                       |
+| `diskResumeConfig.includePartialMessages`          | boolean            | Include intermediate streaming messages. Default: `false`                                                                                            |
+| `diskResumeConfig.promptSuggestions`               | boolean            | Emit post-turn prompt suggestion events (`prompt_suggestion`). Default: `false`                                                                      |
+| `diskResumeConfig.agentProgressSummaries`          | boolean            | Emit AI-generated subagent progress summaries. Default: `false`                                                                                      |
+| `diskResumeConfig.strictMcpConfig`                 | boolean            | Strict MCP config validation. Default: `false`                                                                                                       |
+| `diskResumeConfig.settings`                        | string \| object   | Extra Claude Code flag settings (path or inline object), loaded at the highest-priority flag-settings layer. Default: none                           |
+| `diskResumeConfig.settingSources`                  | string[]           | Which filesystem settings to load. Default: `["user", "project", "local"]`                                                                           |
+| `diskResumeConfig.debug`                           | boolean            | Debug mode. Default: `false`                                                                                                                         |
+| `diskResumeConfig.debugFile`                       | string             | Debug log file path (implicitly enables debug). Default: omitted                                                                                     |
+| `diskResumeConfig.env`                             | object             | Environment variables merged over `process.env` (user values override). Default: inherit process.env                                                 |
 
 </details>
 
@@ -316,21 +323,24 @@ List, inspect, cancel, or interrupt sessions.
 
 `sessions[]` now includes lightweight diagnostics fields: `pendingPermissionCount`, `eventCount`, `currentCursor`, `lastEventId`, `ttlMs`, `lastError?`, `lastErrorAt?`, `fastModeState?`, and `redactions[]`.
 
-### `claude_code_check` — Poll events and respond to permission requests
+### `claude_code_check` — Poll events and respond to interactive actions
 
-Poll session events/results and approve/deny pending permission requests.
+Poll session events/results, approve or deny permissions, and answer Claude's user questions.
 
-Important protocol note: `action="poll"` is the main loop, and `action="respond_permission"` is the only interactive approval flow on this backend. `respond_user_input` is not supported.
+Important protocol note: `action="poll"` is the main loop. Permission requests use `respond_permission`; `AskUserQuestion` actions use `respond_user_input`. They are separate callback lifecycles, including in `bypassPermissions` mode.
 
 | Parameter           | Type    | Required               | Description                                                                                                               |
 | ------------------- | ------- | ---------------------- | ------------------------------------------------------------------------------------------------------------------------- |
-| `action`            | string  | Yes                    | `"poll"` or `"respond_permission"`                                                                                        |
+| `action`            | string  | Yes                    | `"poll"`, `"respond_permission"`, or `"respond_user_input"`                                                               |
 | `sessionId`         | string  | Yes                    | Target session ID                                                                                                         |
 | `cursor`            | number  | No                     | Event cursor for incremental polling (`poll` only). Default: omitted (starts from the beginning of the buffer)            |
 | `responseMode`      | string  | No                     | `"minimal"` (default), `"delta_compact"` (lightweight polling), or `"full"` (verbose diagnostics)                         |
 | `maxEvents`         | number  | No                     | Max events per poll (pagination via `nextCursor`). Default: `200` in `"minimal"`; unlimited in `"full"`/`"delta_compact"` |
-| `requestId`         | string  | For respond_permission | Permission request ID                                                                                                     |
+| `requestId`         | string  | For either response    | Pending action request ID                                                                                                 |
 | `decision`          | string  | For respond_permission | `"allow"`, `"deny"`, or `"allow_for_session"`                                                                             |
+| `answers`           | object  | For respond_user_input | Question text to string answer. Multiple selections use one comma-separated string                                        |
+| `response`          | string  | No                     | Optional SDK user-question response text                                                                                  |
+| `annotations`       | object  | No                     | Optional question-text keyed `{ preview?, notes? }` metadata                                                              |
 | `denyMessage`       | string  | No                     | Deny reason shown to Claude (`deny` only). Default: `"Permission denied by caller"`                                       |
 | `interrupt`         | boolean | No                     | When true, denying also interrupts the whole agent (`deny` only). Default: `false`                                        |
 | `pollOptions`       | object  | No                     | Fine-grained poll control options (see below)                                                                             |
@@ -364,12 +374,13 @@ Important protocol note: `action="poll"` is the main loop, and `action="respond_
 
 </details>
 
-**Returns (poll and respond_permission):** `{ sessionId, status, pollInterval?, cursorResetTo?, truncated?, truncatedFields?, events, nextCursor?, availableTools?, toolValidation?, compatWarnings?, actions?, result?, cancelledAt?, cancelledReason?, cancelledSource?, lastEventId?, lastToolUseId? }`
+**Returns:** `{ sessionId, status, pollInterval?, cursorResetTo?, truncated?, truncatedFields?, events, nextCursor?, availableTools?, toolValidation?, compatWarnings?, actions?, result?, cancelledAt?, cancelledReason?, cancelledSource?, lastEventId?, lastToolUseId? }`
 
 Notes:
 
 - On error (e.g. invalid arguments, missing/expired session): `{ sessionId, isError: true, error }`
-- `respond_user_input` is not supported on this backend. Use `respond_permission` for interactive approvals.
+- A `user_question` action preserves `requestId`, `toolUseId`, question and option order, `multiSelect`, `createdAt`, and `expiresAt`. Answer it once with `respond_user_input`; unknown, expired, duplicate, or cross-session request IDs fail closed.
+- User-question callbacks wait up to 30 minutes. Timeout ends the session with `USER_INPUT_TIMEOUT`; pending callbacks exist only in memory and are not recovered after process restart.
 - Always treat `cursor` as an incremental position: store `nextCursor` and pass it back on the next poll to avoid replaying old events.
 - If `cursorResetTo` is present, your `cursor` was too old (events were evicted); reset your cursor to `cursorResetTo`.
 - For safety, de-duplicate events by `event.id` on the client side.
@@ -520,15 +531,15 @@ setx CLAUDE_CODE_GIT_BASH_PATH "C:\Program Files\Git\bin\bash.exe"
 
 All environment variables are optional. They are set on the MCP server process (not on the Claude Code child process — for that, use the `env` tool parameter).
 
-| Variable                                     | Description                                                                                                                                                                           | Default        |
-| -------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------- |
-| `CLAUDE_CODE_GIT_BASH_PATH`                  | Path to `bash.exe` on Windows (see [Windows Support](#windows-support))                                                                                                               | Auto-detected  |
-| `CLAUDE_CODE_MCP_ALLOW_DISK_RESUME`          | Set to `1` to allow `claude_code_reply` to resume from on-disk transcripts when the in-memory session is missing                                                                      | `0` (disabled) |
-| `CLAUDE_CODE_MCP_RESUME_SECRET`              | HMAC secret used to validate `resumeToken` for disk resume fallback (recommended if disk resume is enabled)                                                                           | _(unset)_      |
-| `CLAUDE_CODE_MCP_MAX_SESSIONS`               | Maximum number of in-memory sessions (set `0` to disable the limit)                                                                                                                   | `128`          |
-| `CLAUDE_CODE_MCP_MAX_PENDING_PERMISSIONS`    | Maximum number of outstanding permission requests per session (set `0` to disable the limit)                                                                                          | `64`           |
-| `CLAUDE_CODE_MCP_EVENT_BUFFER_MAX_SIZE`      | Soft limit for in-memory event buffer per session (`0` is not supported)                                                                                                              | `1000`         |
-| `CLAUDE_CODE_MCP_EVENT_BUFFER_HARD_MAX_SIZE` | Hard limit for in-memory event buffer per session (clamped to be `>= max`; `0` is not supported)                                                                                      | `2000`         |
+| Variable                                     | Description                                                                                                      | Default        |
+| -------------------------------------------- | ---------------------------------------------------------------------------------------------------------------- | -------------- |
+| `CLAUDE_CODE_GIT_BASH_PATH`                  | Path to `bash.exe` on Windows (see [Windows Support](#windows-support))                                          | Auto-detected  |
+| `CLAUDE_CODE_MCP_ALLOW_DISK_RESUME`          | Set to `1` to allow `claude_code_reply` to resume from on-disk transcripts when the in-memory session is missing | `0` (disabled) |
+| `CLAUDE_CODE_MCP_RESUME_SECRET`              | HMAC secret used to validate `resumeToken` for disk resume fallback (recommended if disk resume is enabled)      | _(unset)_      |
+| `CLAUDE_CODE_MCP_MAX_SESSIONS`               | Maximum number of in-memory sessions (set `0` to disable the limit)                                              | `128`          |
+| `CLAUDE_CODE_MCP_MAX_PENDING_PERMISSIONS`    | Maximum number of outstanding permission requests per session (set `0` to disable the limit)                     | `64`           |
+| `CLAUDE_CODE_MCP_EVENT_BUFFER_MAX_SIZE`      | Soft limit for in-memory event buffer per session (`0` is not supported)                                         | `1000`         |
+| `CLAUDE_CODE_MCP_EVENT_BUFFER_HARD_MAX_SIZE` | Hard limit for in-memory event buffer per session (clamped to be `>= max`; `0` is not supported)                 | `2000`         |
 
 ### How to configure
 
@@ -643,17 +654,25 @@ Sessions are automatically cleaned up after 30 minutes of idle time, or after 4 
 
 ## Error Codes
 
-MCP server validation/policy errors are returned as `Error [CODE]: message` where `CODE` is one of:
+Tool errors and terminal `AgentResult.error` values use `{ code, message, recoverable }`. Error events and the `delegate-claude:///errors` resource use the same codes. Prompts, answers, environment values, and secrets are not included in these errors.
 
 - `INVALID_ARGUMENT` — invalid inputs (e.g. missing sessionId, empty cwd)
 - `SESSION_NOT_FOUND` — session not found in memory (expired or server restarted)
 - `SESSION_BUSY` — session currently running
 - `PERMISSION_DENIED` — operation not allowed by server policy
 - `PERMISSION_REQUEST_NOT_FOUND` — permission request ID not found (already finished or expired)
+- `USER_INPUT_REQUEST_NOT_FOUND` — user-question request ID is unknown, expired, or already answered
+- `USER_INPUT_SESSION_MISMATCH` — user-question request belongs to a different session
+- `MODEL_UNAVAILABLE` — the explicitly requested model is unavailable; no alternate model is tried
+- `USER_INPUT_TIMEOUT` — a user question was not answered within 30 minutes
+- `PERMISSION_TIMEOUT` — a permission decision exceeded its deadline
+- `SDK_START_FAILED` — Claude Agent SDK failed before session initialization
+- `SDK_EXECUTION_FAILED` — Claude Agent SDK reported a failure during execution
+- `SDK_PROTOCOL_ERROR` — an SDK callback or message violated the expected contract
 - `RESOURCE_EXHAUSTED` — resource limit reached (e.g. max sessions or max pending permissions)
 - `TIMEOUT` — operation timed out
 - `CANCELLED` — session was cancelled
-- `INTERNAL` — unexpected error or protocol mismatch
+- `INTERNAL` — an unclassified internal failure
 
 For Claude Agent SDK execution failures, also check `errorSubtype` (e.g. `error_max_turns`, `error_max_budget_usd`, `error_during_execution`) and the returned `result` text.
 

@@ -139,7 +139,7 @@ describe("MCP Server", () => {
 
       expect(claudeCode?.description).toContain("10+ minutes");
       expect(claudeCode?.description).toContain("No final result is returned here");
-      expect(claudeCode?.description).toContain("respond_user_input is not supported");
+      expect(claudeCode?.description).toContain("respond_user_input");
       expect(claudeCodePrompt?.description).toContain(
         "final result arrives later via claude_code_check"
       );
@@ -169,6 +169,12 @@ describe("MCP Server", () => {
       expect(replyDiskResumeConfig?.properties?.thinking?.description).toContain(
         "Thinking config object, not a string"
       );
+      expect(replyDiskResumeConfig?.properties?.permissionMode?.description).toContain(
+        "disk resume"
+      );
+      expect(
+        replyDiskResumeConfig?.properties?.allowDangerouslySkipPermissions?.description
+      ).toContain("bypassPermissions");
       expect(claudeCodeCheck?.description).toContain("persist nextCursor");
       expect(claudeCodeCheck?.description).toContain("Do NOT high-frequency poll");
       expect(claudeCodeCheckAction?.description).toContain(

@@ -213,8 +213,8 @@ describe("executeClaudeCode (async)", () => {
 
     expect(result.status).toBe("error");
     if (result.status === "error") {
-      expect(result.error).toContain("INVALID_ARGUMENT");
-      expect(result.error).toContain("not a launchable file");
+      expect(result.error.code).toBe("INVALID_ARGUMENT");
+      expect(result.error.message).toContain("not a launchable file");
     }
     expect(mockQuery).not.toHaveBeenCalled();
   });
@@ -228,7 +228,7 @@ describe("executeClaudeCode (async)", () => {
     });
     const start = await executeClaudeCode({ prompt: "Fix the bug" }, manager, "/tmp", toolCache);
     expect(start.status).toBe("error");
-    expect((start as { error?: string }).error).toContain("RESOURCE_EXHAUSTED");
+    expect(start.status === "error" ? start.error.code : undefined).toBe("RESOURCE_EXHAUSTED");
   });
 
   it("should pass option fields through to query()", async () => {
@@ -269,7 +269,7 @@ describe("executeClaudeCode (async)", () => {
     const start = await executeClaudeCode({ prompt: "Test", cwd: "" }, manager, "/tmp", toolCache);
     expect(start.status).toBe("error");
     if (start.status === "error") {
-      expect(start.error).toContain("INVALID_ARGUMENT");
+      expect(start.error.code).toBe("INVALID_ARGUMENT");
     }
     expect(mockQuery).not.toHaveBeenCalled();
   });
@@ -286,7 +286,11 @@ describe("executeClaudeCode (async)", () => {
     );
     expect(start.status).toBe("error");
     if (start.status === "error") {
-      expect(start.error).toBe(`Error [INVALID_ARGUMENT]: cwd path does not exist: ${missingCwd}`);
+      expect(start.error).toEqual({
+        code: "INVALID_ARGUMENT",
+        message: `cwd path does not exist: ${missingCwd}`,
+        recoverable: true,
+      });
     }
     expect(mockQuery).not.toHaveBeenCalled();
   });
@@ -306,7 +310,11 @@ describe("executeClaudeCode (async)", () => {
       expect(start).toEqual({
         sessionId: "",
         status: "error",
-        error: "Error [INTERNAL]: home directory unavailable",
+        error: {
+          code: "INTERNAL",
+          message: "home directory unavailable",
+          recoverable: false,
+        },
       });
       expect(mockQuery).not.toHaveBeenCalled();
     } finally {
@@ -347,7 +355,7 @@ describe("executeClaudeCode (async)", () => {
       const start = await promise;
       expect(start.status).toBe("error");
       if (start.status === "error") {
-        expect(start.error).toContain("TIMEOUT");
+        expect(start.error.code).toBe("SDK_START_FAILED");
       }
     } finally {
       vi.useRealTimers();
@@ -388,7 +396,7 @@ describe("executeClaudeCode (async)", () => {
     const start = await promise;
     expect(start.status).toBe("error");
     if (start.status === "error") {
-      expect(start.error).toContain("CANCELLED");
+      expect(start.error.code).toBe("CANCELLED");
     }
   });
 
@@ -540,7 +548,7 @@ describe("executeClaudeCodeReply (async)", () => {
     );
     expect(res.status).toBe("error");
     if (res.status === "error") {
-      expect(res.error).toContain("SESSION_NOT_FOUND");
+      expect(res.error.code).toBe("SESSION_NOT_FOUND");
     }
   });
 
@@ -633,7 +641,7 @@ describe("executeClaudeCodeReply (async)", () => {
       );
       expect(res.status).toBe("error");
       if (res.status === "error") {
-        expect(res.error).toContain("PERMISSION_DENIED");
+        expect(res.error.code).toBe("PERMISSION_DENIED");
       }
     } finally {
       vi.unstubAllEnvs();
@@ -655,7 +663,7 @@ describe("executeClaudeCodeReply (async)", () => {
       );
       expect(res.status).toBe("error");
       if (res.status === "error") {
-        expect(res.error).toContain("PERMISSION_DENIED");
+        expect(res.error.code).toBe("PERMISSION_DENIED");
       }
     } finally {
       vi.unstubAllEnvs();
@@ -672,7 +680,7 @@ describe("executeClaudeCodeReply (async)", () => {
     );
     expect(res.status).toBe("error");
     if (res.status === "error") {
-      expect(res.error).toContain("SESSION_BUSY");
+      expect(res.error.code).toBe("SESSION_BUSY");
     }
   });
 
@@ -741,7 +749,7 @@ describe("executeClaudeCodeReply (async)", () => {
       );
 
       expect(reply.status).toBe("error");
-      if (reply.status === "error") expect(reply.error).toContain("INVALID_ARGUMENT");
+      if (reply.status === "error") expect(reply.error.code).toBe("INVALID_ARGUMENT");
       expect(mockQuery).not.toHaveBeenCalled();
     } finally {
       rmSync(fixture.dir, { recursive: true, force: true });
@@ -773,7 +781,7 @@ describe("executeClaudeCodeReply (async)", () => {
       );
 
       expect(reply.status).toBe("error");
-      if (reply.status === "error") expect(reply.error).toContain("INVALID_ARGUMENT");
+      if (reply.status === "error") expect(reply.error.code).toBe("INVALID_ARGUMENT");
       expect(mockQuery).not.toHaveBeenCalled();
     } finally {
       rmSync(fixture.dir, { recursive: true, force: true });
@@ -955,7 +963,7 @@ describe("executeClaudeCodeReply (async)", () => {
     );
     expect(res.status).toBe("error");
     if (res.status === "error") {
-      expect(res.error).toContain("INTERNAL");
+      expect(res.error.code).toBe("SDK_PROTOCOL_ERROR");
     }
   });
 });

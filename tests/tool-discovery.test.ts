@@ -51,7 +51,7 @@ describe("tool-discovery", () => {
     expect(desc).toContain("10+ minutes");
     expect(desc).toContain("claude_code_reply");
     expect(desc).toContain("No final result is returned here");
-    expect(desc).toContain("respond_user_input is not supported");
+    expect(desc).toContain("respond_user_input");
     expect(desc).toContain("strictAllowedTools=true");
   });
 });

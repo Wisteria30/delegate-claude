@@ -51,12 +51,12 @@
 
 ### 2.1 工具与职责
 
-| 工具                  | 职责                       | 阻塞行为                  |
-| --------------------- | -------------------------- | ------------------------- |
-| `claude_code`         | 启动新会话                 | 仅等待 init，随后后台运行 |
-| `claude_code_reply`   | 继续会话 / fork / 磁盘恢复 | 立即返回，后台运行        |
-| `claude_code_session` | list/get/cancel/interrupt  | 同步返回                  |
-| `claude_code_check`   | 轮询事件 + 权限裁决        | 同步返回                  |
+| 工具                  | 职责                         | 阻塞行为                  |
+| --------------------- | ---------------------------- | ------------------------- |
+| `claude_code`         | 启动新会话                   | 仅等待 init，随后后台运行 |
+| `claude_code_reply`   | 继续会话 / fork / 磁盘恢复   | 立即返回，后台运行        |
+| `claude_code_session` | list/get/cancel/interrupt    | 同步返回                  |
+| `claude_code_check`   | 轮询事件 + 权限/用户问题裁决 | 同步返回                  |
 
 ### 2.2 核心运行路径
 
@@ -64,7 +64,7 @@
 2. 交给 `query-consumer` 后台消费 SDK `query()` 异步流
 3. 事件写入 `SessionManager` 的事件缓冲
 4. 调用方用 `claude_code_check action=poll` 轮询增量事件
-5. 需要授权时，调用方通过 `respond_permission` 做裁决
+5. 权限请求由 `respond_permission` 裁决；`AskUserQuestion` 由 `respond_user_input` 回答
 6. 终态为 `idle` / `error` / `cancelled`
 
 ### 2.3 关键代码锚点
@@ -111,38 +111,40 @@
 
 ### 4.1 `claude_code` / `claude_code_reply` 常见映射
 
-| MCP 参数位置                          | SDK Options 字段             | 映射落点            | 默认值来源                                                                                |
-| ------------------------------------- | ---------------------------- | ------------------- | ----------------------------------------------------------------------------------------- |
-| `cwd`                                 | `cwd`                        | `build-options.ts`  | Server cwd                                                                                |
-| `allowedTools`                        | `allowedTools`               | `build-options.ts`  | none                                                                                      |
-| `disallowedTools`                     | `disallowedTools`            | `build-options.ts`  | none                                                                                      |
-| `maxTurns`                            | `maxTurns`                   | `build-options.ts`  | SDK                                                                                       |
-| `model`                               | `model`                      | `build-options.ts`  | SDK                                                                                       |
-| `effort`                              | `effort`                     | `build-options.ts`  | SDK                                                                                       |
-| `thinking`                            | `thinking`                   | `build-options.ts`  | SDK                                                                                       |
-| `systemPrompt`                        | `systemPrompt`               | `build-options.ts`  | SDK                                                                                       |
-| `permissionRequestTimeoutMs`          | (server policy)              | `query-consumer.ts` | 60000，clamp 到 300000                                                                    |
-| `advanced.tools`                      | `tools`                      | `build-options.ts`  | SDK                                                                                       |
-| `advanced.agents`                     | `agents`                     | `build-options.ts`  | SDK                                                                                       |
-| `advanced.agent`                      | `agent`                      | `build-options.ts`  | SDK                                                                                       |
-| `advanced.maxBudgetUsd`               | `maxBudgetUsd`               | `build-options.ts`  | SDK                                                                                       |
-| `advanced.betas`                      | `betas`                      | `build-options.ts`  | SDK                                                                                       |
-| `advanced.additionalDirectories`      | `additionalDirectories`      | `build-options.ts`  | SDK                                                                                       |
-| `advanced.outputFormat`               | `outputFormat`               | `build-options.ts`  | SDK                                                                                       |
-| `advanced.pathToClaudeCodeExecutable` | `pathToClaudeCodeExecutable` | `build-options.ts`  | 未指定时不设置 Options 字段，由 SDK 使用同梱 executable；指定时在 `query()` 前验证并只传该文件 |
-| `advanced.mcpServers`                 | `mcpServers`                 | `build-options.ts`  | SDK                                                                                       |
-| `advanced.sandbox`                    | `sandbox`                    | `build-options.ts`  | SDK                                                                                       |
-| `advanced.enableFileCheckpointing`    | `enableFileCheckpointing`    | `build-options.ts`  | SDK                                                                                       |
-| `advanced.toolConfig`                 | `toolConfig`                 | `build-options.ts`  | SDK                                                                                       |
-| `advanced.includePartialMessages`     | `includePartialMessages`     | `build-options.ts`  | SDK                                                                                       |
-| `advanced.promptSuggestions`          | `promptSuggestions`          | `build-options.ts`  | false                                                                                     |
-| `advanced.agentProgressSummaries`     | `agentProgressSummaries`     | `build-options.ts`  | false                                                                                     |
-| `advanced.strictMcpConfig`            | `strictMcpConfig`            | `build-options.ts`  | SDK                                                                                       |
-| `advanced.settings`                   | `settings`                   | `build-options.ts`  | SDK                                                                                       |
-| `advanced.settingSources`             | `settingSources`             | `build-options.ts`  | `["user","project","local"]`                                                              |
-| `advanced.debug`                      | `debug`                      | `build-options.ts`  | false                                                                                     |
-| `advanced.debugFile`                  | `debugFile`                  | `build-options.ts`  | none                                                                                      |
-| `advanced.env`                        | `env`                        | `build-options.ts`  | `{...process.env, ...input.env}`                                                          |
+| MCP 参数位置                          | SDK Options 字段                  | 映射落点            | 默认值来源                                                                                     |
+| ------------------------------------- | --------------------------------- | ------------------- | ---------------------------------------------------------------------------------------------- |
+| `cwd`                                 | `cwd`                             | `build-options.ts`  | Server cwd                                                                                     |
+| `allowedTools`                        | `allowedTools`                    | `build-options.ts`  | none                                                                                           |
+| `disallowedTools`                     | `disallowedTools`                 | `build-options.ts`  | none                                                                                           |
+| `maxTurns`                            | `maxTurns`                        | `build-options.ts`  | SDK                                                                                            |
+| `model`                               | `model`                           | `build-options.ts`  | SDK                                                                                            |
+| `permissionMode`                      | `permissionMode`                  | `build-options.ts`  | `default`                                                                                      |
+| `allowDangerouslySkipPermissions`     | `allowDangerouslySkipPermissions` | `build-options.ts`  | 仅与同一请求中的 `bypassPermissions` 成对接受                                                  |
+| `effort`                              | `effort`                          | `build-options.ts`  | SDK                                                                                            |
+| `thinking`                            | `thinking`                        | `build-options.ts`  | SDK                                                                                            |
+| `systemPrompt`                        | `systemPrompt`                    | `build-options.ts`  | SDK                                                                                            |
+| `permissionRequestTimeoutMs`          | (server policy)                   | `query-consumer.ts` | 60000，clamp 到 300000                                                                         |
+| `advanced.tools`                      | `tools`                           | `build-options.ts`  | SDK                                                                                            |
+| `advanced.agents`                     | `agents`                          | `build-options.ts`  | SDK                                                                                            |
+| `advanced.agent`                      | `agent`                           | `build-options.ts`  | SDK                                                                                            |
+| `advanced.maxBudgetUsd`               | `maxBudgetUsd`                    | `build-options.ts`  | SDK                                                                                            |
+| `advanced.betas`                      | `betas`                           | `build-options.ts`  | SDK                                                                                            |
+| `advanced.additionalDirectories`      | `additionalDirectories`           | `build-options.ts`  | SDK                                                                                            |
+| `advanced.outputFormat`               | `outputFormat`                    | `build-options.ts`  | SDK                                                                                            |
+| `advanced.pathToClaudeCodeExecutable` | `pathToClaudeCodeExecutable`      | `build-options.ts`  | 未指定时不设置 Options 字段，由 SDK 使用同梱 executable；指定时在 `query()` 前验证并只传该文件 |
+| `advanced.mcpServers`                 | `mcpServers`                      | `build-options.ts`  | SDK                                                                                            |
+| `advanced.sandbox`                    | `sandbox`                         | `build-options.ts`  | SDK                                                                                            |
+| `advanced.enableFileCheckpointing`    | `enableFileCheckpointing`         | `build-options.ts`  | SDK                                                                                            |
+| `advanced.toolConfig`                 | `toolConfig`                      | `build-options.ts`  | SDK                                                                                            |
+| `advanced.includePartialMessages`     | `includePartialMessages`          | `build-options.ts`  | SDK                                                                                            |
+| `advanced.promptSuggestions`          | `promptSuggestions`               | `build-options.ts`  | false                                                                                          |
+| `advanced.agentProgressSummaries`     | `agentProgressSummaries`          | `build-options.ts`  | false                                                                                          |
+| `advanced.strictMcpConfig`            | `strictMcpConfig`                 | `build-options.ts`  | SDK                                                                                            |
+| `advanced.settings`                   | `settings`                        | `build-options.ts`  | SDK                                                                                            |
+| `advanced.settingSources`             | `settingSources`                  | `build-options.ts`  | `["user","project","local"]`                                                                   |
+| `advanced.debug`                      | `debug`                           | `build-options.ts`  | false                                                                                          |
+| `advanced.debugFile`                  | `debugFile`                       | `build-options.ts`  | none                                                                                           |
+| `advanced.env`                        | `env`                             | `build-options.ts`  | `{...process.env, ...input.env}`                                                               |
 
 ### 4.2 `claude_code_reply.diskResumeConfig` 映射
 
@@ -158,6 +160,7 @@
 | ------------------------------------------------------ | ------------------------------------------- | ------------------ |
 | `action`                                               | `claude_code_check` / `claude_code_session` | MCP 协议动作分支   |
 | `requestId` / `decision` / `interrupt` / `denyMessage` | `claude_code_check`                         | 权限请求裁决协议   |
+| `answers` / `response` / `annotations`                 | `claude_code_check`                         | 用户问题回答协议   |
 | `pollOptions`                                          | `claude_code_check`                         | 返回裁剪与体积控制 |
 | `includeSensitive`                                     | `claude_code_session`                       | 会话信息脱敏开关   |
 | `sessionInitTimeoutMs`                                 | `claude_code` / `claude_code_reply`         | init 等待策略      |
@@ -209,12 +212,22 @@
 4. `respond_permission` 处理 allow/deny/allow_for_session（`allow_for_session` 优先采用 SDK `suggestions`，否则回退到通用 session allow rule）
 5. request 幂等收尾（respond/timeout/cancel/signal 任一路径只会完成一次）
 
+### 5.4 用户问题事件
+
+`AskUserQuestion` 使用 SDK `PreToolUse` hook，不通过 `canUseTool`，因此在 `bypassPermissions` 下也不会自动回答：
+
+1. 原始问题与选项顺序不变地生成 `user_question` action
+2. 会话进入 `waiting_user_input`，pending callback 只保存在进程内
+3. `respond_user_input` 将 `answers`、可选 `response` / `annotations` 合并回原始 tool input
+4. respond/cancel/interrupt/shutdown/timeout 任一路径只完成一次 callback
+5. 标准 30 分钟 timeout 会拒绝该 tool use、终止 query，并在 terminal result 记录 `USER_INPUT_TIMEOUT`
+
 ## 6. 状态机与生命周期
 
 ### 6.1 会话状态机
 
 ```text
-running <-> waiting_permission -> idle | error | cancelled
+running <-> waiting_permission | waiting_user_input -> idle | error | cancelled
 ```
 
 - `cancelled` 为终态，不可继续回复
@@ -229,7 +242,7 @@ running <-> waiting_permission -> idle | error | cancelled
 
 - 软上限：`CLAUDE_CODE_MCP_EVENT_BUFFER_MAX_SIZE`（默认 1000）
 - 硬上限：`CLAUDE_CODE_MCP_EVENT_BUFFER_HARD_MAX_SIZE`（默认 2000）
-- 关键事件 pin（权限请求、权限结果、错误）优先保留
+- 关键事件 pin（权限请求、用户问题、各自结果、错误）优先保留
 
 ## 7. 安全模型
 
@@ -238,6 +251,7 @@ running <-> waiting_permission -> idle | error | cancelled
 1. 可见性层：`advanced.tools`
 2. 硬策略层：`allowedTools` / `disallowedTools`
 3. 交互裁决层：`canUseTool` + `claude_code_check respond_permission`
+4. 用户输入层：`PreToolUse(AskUserQuestion)` + `claude_code_check respond_user_input`
 
 ### 7.2 数据与信息安全
 
@@ -330,8 +344,7 @@ running <-> waiting_permission -> idle | error | cancelled
 
 ### 10.3 错误表达
 
-工具 handler 统一返回 `{ content, isError }`，不向 MCP 层直接抛异常。
-错误消息使用 `Error [CODE]: message` 格式，`CODE` 由 `ErrorCode` 统一管理。
+工具 handler 统一返回 `{ content, isError, structuredContent }`，不向 MCP 层直接抛异常。公开错误与 terminal `AgentResult.error` 使用 `{ code, message, recoverable }`，事件与 `delegate-claude:///errors` resource 共用同一 `ErrorCode`。prompt、用户回答、env 值与 secret 不进入错误或日志。
 
 ### 10.4 OpenCode 导向用法
 

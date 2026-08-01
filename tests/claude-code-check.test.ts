@@ -18,7 +18,7 @@ describe("executeClaudeCodeCheck", () => {
   it("should return SESSION_NOT_FOUND for missing session", () => {
     const res = executeClaudeCodeCheck({ action: "poll", sessionId: "nope" }, manager);
     expect("isError" in res && res.isError).toBe(true);
-    expect((res as { error: string }).error).toContain("SESSION_NOT_FOUND");
+    expect("error" in res ? res.error.code : undefined).toBe("SESSION_NOT_FOUND");
   });
 
   it("should omit availableTools when includeTools=true but init tools are not available yet", () => {
@@ -349,7 +349,7 @@ describe("executeClaudeCodeCheck", () => {
       manager
     );
     expect("isError" in res && res.isError).toBe(true);
-    expect((res as { error: string }).error).toContain("PERMISSION_REQUEST_NOT_FOUND");
+    expect("error" in res ? res.error.code : undefined).toBe("PERMISSION_REQUEST_NOT_FOUND");
   });
 
   it("exposes the full permission record through check actions", () => {

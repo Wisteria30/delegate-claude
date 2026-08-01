@@ -169,7 +169,7 @@ export function buildInternalToolsDescription(tools: ToolInfo[]): string {
   let desc =
     "Start a background Claude Code run and return sessionId immediately. No final result is returned here.\n" +
     "Main loop: call claude_code_check(action='poll'), store nextCursor, and keep polling until status becomes idle, error, or cancelled.\n" +
-    "If actions[] contains permission requests, answer them with claude_code_check(action='respond_permission'). respond_user_input is not supported.\n" +
+    "If actions[] contains permission requests, use claude_code_check(action='respond_permission'); for user_question actions, use action='respond_user_input' with answers keyed by question text.\n" +
     "Adjust polling cadence to progress: poll faster while new events/actions are arriving, and slower when the session is quietly thinking.\n" +
     "Long-running work is normal: Claude Code can keep working for 10+ minutes, especially with high/max effort, so wait for polling to settle before assuming it is stuck.\n" +
     "If you want to continue after a run pauses or finishes, use claude_code_reply with the same sessionId instead of starting a new claude_code session.\n" +

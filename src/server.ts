@@ -15,8 +15,10 @@ import {
   CHECK_ACTIONS,
   CHECK_RESPONSE_MODES,
   SESSION_ACTIONS,
+  PERMISSION_MODES,
   ErrorCode as LocalErrorCode,
 } from "./types.js";
+import { structuredError } from "./utils/structured-error.js";
 
 declare const __PKG_VERSION__: string;
 const SERVER_VERSION = typeof __PKG_VERSION__ !== "undefined" ? __PKG_VERSION__ : "0.0.0-dev";
@@ -34,7 +36,7 @@ export function createServerContext(serverCwd: string): {
       version: SERVER_VERSION,
       title: "delegate-claude",
       description:
-        "MCP server that runs Claude Code via the Claude Agent SDK. Starts and replies return quickly; callers poll with claude_code_check and answer permission requests explicitly.",
+        "MCP server that runs Claude Code via the Claude Agent SDK. Starts and replies return quickly; callers poll with claude_code_check and answer permission requests or user questions explicitly.",
       websiteUrl: "https://github.com/Wisteria30/delegate-claude",
       icons: [],
     },
@@ -110,10 +112,14 @@ export function createServerContext(serverCwd: string): {
   ]);
 
   const thinkingSchema = z.union([
-    z.object({ type: z.literal("adaptive") }),
+    z.object({
+      type: z.literal("adaptive"),
+      display: z.enum(["summarized", "omitted"]).optional(),
+    }),
     z.object({
       type: z.literal("enabled"),
       budgetTokens: z.number().int().positive().optional(),
+      display: z.enum(["summarized", "omitted"]).optional(),
     }),
     z.object({ type: z.literal("disabled") }),
   ]);
@@ -201,7 +207,7 @@ export function createServerContext(serverCwd: string): {
   const diskResumeOptionFieldsSchemaShape = {
     ...sharedOptionFieldsSchemaShape,
     effort: effortOptionSchema.describe(
-      "Effort string: 'low' | 'medium' | 'high' | 'max'. Default: SDK"
+      "Effort string: 'low' | 'medium' | 'high' | 'xhigh' | 'max'. Default: SDK"
     ),
     thinking: thinkingOptionSchema.describe(
       "Thinking config object, not a string. Use {type:'adaptive'} | {type:'enabled', budgetTokens?:N} | {type:'disabled'}. Default: SDK"
@@ -242,6 +248,16 @@ export function createServerContext(serverCwd: string): {
         ),
       maxTurns: z.number().int().positive().optional().describe("Default: SDK"),
       model: z.string().optional().describe("Default: SDK"),
+      permissionMode: z
+        .enum(PERMISSION_MODES)
+        .optional()
+        .describe("Default: 'default' for disk resume."),
+      allowDangerouslySkipPermissions: z
+        .boolean()
+        .optional()
+        .describe(
+          "Default: false. Must be true with permissionMode='bypassPermissions' and invalid with every other mode."
+        ),
       systemPrompt: systemPromptSchema
         .optional()
         .describe(
@@ -258,9 +274,18 @@ export function createServerContext(serverCwd: string): {
       sessionId: z.string(),
       status: z.enum(["running", "error"]),
       pollInterval: z.number().optional(),
+      model: z.string().optional(),
+      claudeCodeVersion: z.string().optional(),
+      permissionMode: z.enum(PERMISSION_MODES).optional(),
       resumeToken: z.string().optional(),
       compatWarnings: z.array(z.string()).optional(),
-      error: z.string().optional(),
+      error: z
+        .object({
+          code: z.string(),
+          message: z.string(),
+          recoverable: z.boolean(),
+        })
+        .optional(),
     })
     .passthrough();
 
@@ -268,6 +293,9 @@ export function createServerContext(serverCwd: string): {
     .object({
       sessions: z.array(z.record(z.string(), z.unknown())),
       message: z.string().optional(),
+      error: z
+        .object({ code: z.string(), message: z.string(), recoverable: z.boolean() })
+        .optional(),
       isError: z.boolean().optional(),
     })
     .passthrough();
@@ -318,7 +346,9 @@ export function createServerContext(serverCwd: string): {
       lastEventId: z.number().optional(),
       lastToolUseId: z.string().optional(),
       isError: z.boolean().optional(),
-      error: z.string().optional(),
+      error: z
+        .object({ code: z.string(), message: z.string(), recoverable: z.boolean() })
+        .optional(),
     })
     .passthrough();
 
@@ -350,8 +380,15 @@ export function createServerContext(serverCwd: string): {
           .describe("Default: false. When true, tools outside allowedTools are denied."),
         maxTurns: z.number().int().positive().optional().describe("Default: SDK"),
         model: z.string().optional().describe("Default: SDK"),
+        permissionMode: z.enum(PERMISSION_MODES).optional().describe("Default: 'default'."),
+        allowDangerouslySkipPermissions: z
+          .boolean()
+          .optional()
+          .describe(
+            "Default: false. Must be true in the same request when permissionMode='bypassPermissions', and is invalid with every other mode."
+          ),
         effort: effortOptionSchema.describe(
-          "Effort string: 'low' | 'medium' | 'high' | 'max'. Default: SDK"
+          "Effort string: 'low' | 'medium' | 'high' | 'xhigh' | 'max'. Default: SDK"
         ),
         thinking: thinkingOptionSchema.describe(
           "Thinking config object, not a string. Use {type:'adaptive'} | {type:'enabled', budgetTokens?:N} | {type:'disabled'}. Default: SDK"
@@ -388,7 +425,7 @@ export function createServerContext(serverCwd: string): {
           toolCache,
           extra.signal
         );
-        const isError = typeof (result as { error?: unknown }).error === "string";
+        const isError = (result as { error?: unknown }).error !== undefined;
         return {
           content: [
             {
@@ -399,12 +436,11 @@ export function createServerContext(serverCwd: string): {
           structuredContent: result as unknown as Record<string, unknown>,
           isError,
         };
-      } catch (err: unknown) {
-        const message = err instanceof Error ? err.message : String(err);
+      } catch {
         const errorResult = {
           sessionId: "",
           status: "error" as const,
-          error: `Error [${LocalErrorCode.INTERNAL}]: ${message}`,
+          error: structuredError(LocalErrorCode.INTERNAL, "Unexpected internal failure."),
         };
         return {
           content: [
@@ -434,8 +470,18 @@ export function createServerContext(serverCwd: string): {
           ),
         prompt: z.string().describe("Follow-up prompt for the existing session."),
         forkSession: z.boolean().optional().describe("Default: false"),
+        permissionMode: z
+          .enum(PERMISSION_MODES)
+          .optional()
+          .describe("Default: inherit the in-memory session value."),
+        allowDangerouslySkipPermissions: z
+          .boolean()
+          .optional()
+          .describe(
+            "Default: inherit only when permissionMode is omitted. Explicit bypassPermissions requires true in the same request."
+          ),
         effort: effortOptionSchema.describe(
-          "Effort string: 'low' | 'medium' | 'high' | 'max'. Default: SDK"
+          "Effort string: 'low' | 'medium' | 'high' | 'xhigh' | 'max'. Default: SDK"
         ),
         thinking: thinkingOptionSchema.describe(
           "Thinking config object, not a string. Use {type:'adaptive'} | {type:'enabled', budgetTokens?:N} | {type:'disabled'}. Default: SDK"
@@ -469,7 +515,7 @@ export function createServerContext(serverCwd: string): {
     async (args, extra) => {
       try {
         const result = await executeClaudeCodeReply(args, sessionManager, toolCache, extra.signal);
-        const isError = typeof (result as { error?: unknown }).error === "string";
+        const isError = (result as { error?: unknown }).error !== undefined;
         return {
           content: [
             {
@@ -480,12 +526,11 @@ export function createServerContext(serverCwd: string): {
           structuredContent: result as unknown as Record<string, unknown>,
           isError,
         };
-      } catch (err: unknown) {
-        const message = err instanceof Error ? err.message : String(err);
+      } catch {
         const errorResult = {
           sessionId: "",
           status: "error" as const,
-          error: `Error [${LocalErrorCode.INTERNAL}]: ${message}`,
+          error: structuredError(LocalErrorCode.INTERNAL, "Unexpected internal failure."),
         };
         return {
           content: [
@@ -539,11 +584,10 @@ export function createServerContext(serverCwd: string): {
           structuredContent: result as unknown as Record<string, unknown>,
           isError: result.isError ?? false,
         };
-      } catch (err: unknown) {
-        const message = err instanceof Error ? err.message : String(err);
+      } catch {
         const errorResult = {
           sessions: [],
-          message: `Error [${LocalErrorCode.INTERNAL}]: ${message}`,
+          error: structuredError(LocalErrorCode.INTERNAL, "Unexpected internal failure."),
           isError: true,
         };
         return {
@@ -560,17 +604,17 @@ export function createServerContext(serverCwd: string): {
     }
   );
 
-  // Tool 4: claude_code_check - Poll events + respond to permission requests
+  // Tool 4: claude_code_check - Poll events and answer pending actions
   server.registerTool(
     "claude_code_check",
     {
       description:
-        'Poll session state or answer a pending permission request.\n\nPOLLING FREQUENCY: Do NOT poll every turn. Claude Code tasks take minutes, not seconds.\n- "running": sleep at least 2 minutes between polls; increase for complex tasks. Do NOT high-frequency poll — it wastes tokens.\n- "waiting_permission": poll ~1s and respond quickly.\n- "idle"/"error"/"cancelled": stop polling.\n- Adapt interval based on task complexity and whether the previous poll returned new events.\n\nMain loop: call action=\'poll\', persist nextCursor, and use action=\'respond_permission\' for approvals.',
+        'Poll session state or answer a pending permission request or user question.\n\nPOLLING FREQUENCY: Do NOT poll every turn. Claude Code tasks take minutes, not seconds.\n- "running": sleep at least 2 minutes between polls; increase for complex tasks. Do NOT high-frequency poll — it wastes tokens.\n- "waiting_permission"/"waiting_user_input": poll ~1s and respond quickly.\n- "idle"/"error"/"cancelled": stop polling.\n- Adapt interval based on task complexity and whether the previous poll returned new events.\n\nMain loop: call action=\'poll\', persist nextCursor, use action=\'respond_permission\' for approvals, and action=\'respond_user_input\' for AskUserQuestion answers.',
       inputSchema: {
         action: z
           .enum(CHECK_ACTIONS)
           .describe(
-            "'poll' fetches new events/actions/result; 'respond_permission' answers one pending permission request."
+            "'poll' fetches new events/actions/result; 'respond_permission' answers one permission request; 'respond_user_input' answers one AskUserQuestion callback."
           ),
         sessionId: z.string().describe("Session ID returned by claude_code or claude_code_reply."),
         cursor: z
@@ -597,7 +641,31 @@ export function createServerContext(serverCwd: string): {
         requestId: z
           .string()
           .optional()
-          .describe("Default: none. Required for action='respond_permission'."),
+          .describe(
+            "Default: none. Required for action='respond_permission' or 'respond_user_input'."
+          ),
+        answers: z
+          .record(z.string(), z.string())
+          .optional()
+          .describe(
+            "Required for action='respond_user_input'. Keys are the original question text; multi-select values are comma-separated."
+          ),
+        response: z
+          .string()
+          .optional()
+          .describe("Default: none. Optional free-form response for respond_user_input."),
+        annotations: z
+          .record(
+            z.string(),
+            z.object({
+              preview: z.string().optional(),
+              notes: z.string().optional(),
+            })
+          )
+          .optional()
+          .describe(
+            "Default: none. Optional per-question preview and notes keyed by question text."
+          ),
         decision: z
           .enum(["allow", "deny", "allow_for_session"])
           .optional()
@@ -686,14 +754,13 @@ export function createServerContext(serverCwd: string): {
           structuredContent: result as unknown as Record<string, unknown>,
           isError,
         };
-      } catch (err: unknown) {
-        const message = err instanceof Error ? err.message : String(err);
+      } catch {
         const errorResult = {
           sessionId: args.sessionId ?? "",
           status: "error",
           events: [] as unknown[],
           isError: true,
-          error: `Error [${LocalErrorCode.INTERNAL}]: ${message}`,
+          error: structuredError(LocalErrorCode.INTERNAL, "Unexpected internal failure."),
         };
         return {
           content: [

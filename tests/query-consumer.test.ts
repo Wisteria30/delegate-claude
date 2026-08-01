@@ -2283,7 +2283,7 @@ describe("consumeQuery error paths", () => {
     expect(session!.status).toBe("error");
 
     const result = manager.getResult("sess-noresult");
-    expect(result!.result.result).toContain("No result message received");
+    expect(result!.result.error?.code).toBe("SDK_PROTOCOL_ERROR");
 
     manager.destroy();
   });

@@ -4,7 +4,7 @@ This repository is a TypeScript (ESM) MCP server wrapping Claude Agent SDK / Cla
 Package: `@wisteria30/delegate-claude`.
 Assumption: MCP server and client run on the same machine (same platform), via stdio.
 
-> Last Updated: 2026-08-01
+> Last Updated: 2026-08-02
 
 ## Document Boundary (Must Read)
 
@@ -37,6 +37,7 @@ Project direction:
 - Expose only 4 MCP tools (`claude_code`, `claude_code_reply`, `claude_code_session`, `claude_code_check`)
 - Keep startup non-blocking (start/reply return quickly; poll with check)
 - Provide three-layer permission control (`advanced.tools` + allow/deny + async decision)
+- Relay `AskUserQuestion` separately through `claude_code_check respond_user_input`
 
 Detailed behavior, full field semantics, and lifecycle mapping:
 
@@ -279,6 +280,8 @@ Formatting source of truth:
 
 - Keep minimum-tools philosophy (do not add extra MCP tools lightly)
 - Default permission mode remains `default` with async permission callback path
+- `bypassPermissions` requires `allowDangerouslySkipPermissions=true` in the same explicit request
+- User questions always wait for explicit input, including under `bypassPermissions`
 - Sensitive session fields are redacted unless explicitly requested
 - `advanced.env` merges as `{ ...process.env, ...input.advanced.env }`, user values take precedence
 - Subagent usage requires `Task` tool permission (or explicit approval path)

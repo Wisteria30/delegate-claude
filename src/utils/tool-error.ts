@@ -1,6 +1,7 @@
 import { ErrorCode } from "../types.js";
+import type { StructuredError } from "../types.js";
+import { toStructuredError } from "./structured-error.js";
 
-export function toToolErrorText(err: unknown): string {
-  const message = err instanceof Error ? err.message : String(err);
-  return message.includes("Error [") ? message : `Error [${ErrorCode.INTERNAL}]: ${message}`;
+export function toToolError(err: unknown, fallbackCode = ErrorCode.INTERNAL): StructuredError {
+  return toStructuredError(err, fallbackCode);
 }

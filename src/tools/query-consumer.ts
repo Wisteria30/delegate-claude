@@ -1,20 +1,24 @@
 import { AbortError, query } from "@anthropic-ai/claude-agent-sdk";
 import type {
   CanUseTool,
+  HookCallback,
   Options,
   SDKMessage,
   SDKResultMessage,
   SDKSystemMessage,
 } from "@anthropic-ai/claude-agent-sdk";
 import type { SessionManager } from "../session/manager.js";
+import { DEFAULT_USER_QUESTION_TIMEOUT_MS } from "../session/manager.js";
 import type {
   AgentResult,
   PermissionRequestRecord,
   PermissionResult,
   StoredAgentResult,
+  SessionInfo,
+  StructuredError,
+  UserQuestion,
 } from "../types.js";
 import { ErrorCode } from "../types.js";
-import { enhanceWindowsError } from "../utils/windows.js";
 import { normalizePermissionUpdatedInput } from "../utils/permission-updated-input.js";
 import { normalizeToolInput } from "../utils/normalize-tool-input.js";
 import {
@@ -22,6 +26,11 @@ import {
   isUnsupportedPosixAbsolutePath,
 } from "../utils/normalize-windows-path.js";
 import type { ToolDiscoveryCache } from "./tool-discovery.js";
+import {
+  classifySdkStartError,
+  formatStructuredError,
+  structuredError,
+} from "../utils/structured-error.js";
 
 export type ConsumeQueryMode = "start" | "resume" | "disk-resume";
 
@@ -129,7 +138,11 @@ function normalizePolicyToolNames(tools: string[] | undefined): string[] {
     .filter((tool) => tool !== "");
 }
 
-function sdkResultToAgentResult(result: SDKResultMessage): AgentResult {
+function sdkResultToAgentResult(
+  result: SDKResultMessage,
+  session: SessionInfo | undefined,
+  terminalError?: StructuredError
+): AgentResult {
   const sessionTotalTurns = (result as unknown as { session_total_turns?: unknown })
     .session_total_turns;
   const sessionTotalCostUsd = (result as unknown as { session_total_cost_usd?: unknown })
@@ -148,7 +161,20 @@ function sdkResultToAgentResult(result: SDKResultMessage): AgentResult {
     usage: result.usage,
     modelUsage: result.modelUsage,
     permissionDenials: result.permission_denials,
+    model: session?.model,
+    claudeCodeVersion: session?.claudeCodeVersion,
+    permissionMode: session?.permissionMode,
   };
+
+  if (terminalError) {
+    return {
+      ...base,
+      result: formatStructuredError(terminalError),
+      isError: true,
+      error: terminalError,
+      errorSubtype: terminalError.code,
+    };
+  }
 
   if (result.subtype === "success") {
     return {
@@ -159,30 +185,78 @@ function sdkResultToAgentResult(result: SDKResultMessage): AgentResult {
     };
   }
 
-  const errors =
-    Array.isArray(result.errors) && result.errors.length > 0
-      ? result.errors.map(String).join("\n")
-      : `Error [${result.subtype}]: Unknown error`;
-
+  const error = structuredError(
+    result.subtype === "error_during_execution"
+      ? ErrorCode.SDK_EXECUTION_FAILED
+      : ErrorCode.RESOURCE_EXHAUSTED,
+    `Claude Agent SDK returned '${result.subtype}'.`
+  );
   return {
     ...base,
-    result: errors,
+    result: formatStructuredError(error),
     isError: true,
+    error,
     errorSubtype: result.subtype,
   };
 }
 
-function errorToAgentResult(sessionId: string, err: unknown): AgentResult {
-  const message =
-    err instanceof Error ? enhanceWindowsError(err.message) : enhanceWindowsError(String(err));
+function errorToAgentResult(
+  sessionId: string,
+  session?: SessionInfo,
+  terminalError?: StructuredError
+): AgentResult {
+  const error =
+    terminalError ??
+    structuredError(ErrorCode.SDK_PROTOCOL_ERROR, "Claude Agent SDK protocol processing failed.");
   return {
     sessionId,
-    result: `Error [${ErrorCode.INTERNAL}]: ${message}`,
+    result: formatStructuredError(error),
     isError: true,
+    error,
+    model: session?.model,
+    claudeCodeVersion: session?.claudeCodeVersion,
+    permissionMode: session?.permissionMode,
     durationMs: 0,
     numTurns: 0,
     totalCostUsd: 0,
   };
+}
+
+function parseUserQuestions(input: Record<string, unknown>): UserQuestion[] | undefined {
+  if (!Array.isArray(input.questions)) return undefined;
+  const questions: UserQuestion[] = [];
+  for (const value of input.questions) {
+    if (!value || typeof value !== "object" || Array.isArray(value)) return undefined;
+    const question = value as Record<string, unknown>;
+    if (
+      typeof question.question !== "string" ||
+      typeof question.header !== "string" ||
+      typeof question.multiSelect !== "boolean" ||
+      !Array.isArray(question.options)
+    )
+      return undefined;
+    const options = [];
+    for (const optionValue of question.options) {
+      if (!optionValue || typeof optionValue !== "object" || Array.isArray(optionValue))
+        return undefined;
+      const option = optionValue as Record<string, unknown>;
+      if (typeof option.label !== "string" || typeof option.description !== "string")
+        return undefined;
+      if (option.preview !== undefined && typeof option.preview !== "string") return undefined;
+      options.push({
+        label: option.label,
+        description: option.description,
+        ...(option.preview !== undefined ? { preview: option.preview } : {}),
+      });
+    }
+    questions.push({
+      question: question.question,
+      header: question.header,
+      options,
+      multiSelect: question.multiSelect,
+    });
+  }
+  return questions;
 }
 
 function messageToEvent(msg: SDKMessage): { type: "output" | "progress"; data: unknown } | null {
@@ -435,6 +509,65 @@ export function consumeQuery(params: ConsumeQueryParams): ConsumeQueryHandle {
     params.permissionRequestTimeoutMs
   );
 
+  const waitForUserQuestion = async (
+    sessionId: string,
+    input: Record<string, unknown>,
+    toolUseId: string,
+    requestId: string,
+    signal: AbortSignal
+  ): Promise<PermissionResult> => {
+    const questions = parseUserQuestions(input);
+    if (!questions) {
+      const error = structuredError(
+        ErrorCode.SDK_PROTOCOL_ERROR,
+        "AskUserQuestion input did not match the SDK question contract."
+      );
+      params.sessionManager.pushEvent(sessionId, {
+        type: "error",
+        data: { error },
+        timestamp: new Date().toISOString(),
+      });
+      return { behavior: "deny", message: formatStructuredError(error), interrupt: true };
+    }
+
+    const record = {
+      requestId,
+      toolUseId,
+      questions,
+      originalInput: input,
+      createdAt: new Date().toISOString(),
+      expiresAt: "",
+    };
+    return await new Promise<PermissionResult>((resolve) => {
+      let finished = false;
+      const abortListener = () => {
+        params.sessionManager.finishUserQuestion(
+          sessionId,
+          requestId,
+          { behavior: "deny", message: "Session cancelled", interrupt: true },
+          "signal"
+        );
+      };
+      const finish = (result: PermissionResult) => {
+        if (finished) return;
+        finished = true;
+        signal.removeEventListener("abort", abortListener);
+        resolve(result);
+      };
+      const registered = params.sessionManager.setPendingUserQuestion(sessionId, record, finish);
+      if (!registered) {
+        finish({
+          behavior: "deny",
+          message: "User question could not be registered.",
+          interrupt: true,
+        });
+        return;
+      }
+      signal.addEventListener("abort", abortListener, { once: true });
+      if (signal.aborted) abortListener();
+    });
+  };
+
   const canUseTool: CanUseTool = async (toolName, input, options) => {
     const sessionId = await getSessionId();
     const normalizedToolName = toolName.trim();
@@ -571,11 +704,59 @@ export function consumeQuery(params: ConsumeQueryParams): ConsumeQueryHandle {
     });
   };
 
+  const userQuestionHook: HookCallback = async (hookInput, toolUseID, hookOptions) => {
+    if (
+      hookInput.hook_event_name !== "PreToolUse" ||
+      hookInput.tool_name !== "AskUserQuestion" ||
+      !hookInput.tool_input ||
+      typeof hookInput.tool_input !== "object" ||
+      Array.isArray(hookInput.tool_input)
+    ) {
+      return {};
+    }
+    const sessionId = await getSessionId();
+    const effectiveToolUseId = toolUseID ?? hookInput.tool_use_id;
+    const requestId = `${effectiveToolUseId}:user-question:${Date.now()}:${Math.random()
+      .toString(16)
+      .slice(2)}`;
+    const result = await waitForUserQuestion(
+      sessionId,
+      hookInput.tool_input as Record<string, unknown>,
+      effectiveToolUseId,
+      requestId,
+      hookOptions.signal
+    );
+    if (result.behavior === "allow") {
+      return {
+        hookSpecificOutput: {
+          hookEventName: "PreToolUse",
+          permissionDecision: "allow",
+          updatedInput: result.updatedInput,
+        },
+      };
+    }
+    return {
+      hookSpecificOutput: {
+        hookEventName: "PreToolUse",
+        permissionDecision: "deny",
+        permissionDecisionReason: result.message,
+      },
+    };
+  };
+
   const options: Partial<Options> = {
     ...params.options,
     abortController: params.abortController,
-    permissionMode: "default",
     canUseTool,
+    hooks: {
+      PreToolUse: [
+        {
+          matcher: "AskUserQuestion",
+          hooks: [userQuestionHook],
+          timeout: Math.ceil(DEFAULT_USER_QUESTION_TIMEOUT_MS / 1000) + 10,
+        },
+      ],
+    },
   };
 
   const startQuery = (opts: Partial<Options>): QueryLike =>
@@ -617,7 +798,7 @@ export function consumeQuery(params: ConsumeQueryParams): ConsumeQueryHandle {
         close();
         rejectSessionId(
           new Error(
-            `Error [${ErrorCode.TIMEOUT}]: session init timed out after ${params.sessionInitTimeoutMs}ms.`
+            `Error [${ErrorCode.SDK_START_FAILED}]: Session init timed out after ${params.sessionInitTimeoutMs}ms.`
           )
         );
       }, params.sessionInitTimeoutMs);
@@ -637,6 +818,7 @@ export function consumeQuery(params: ConsumeQueryParams): ConsumeQueryHandle {
             params.sessionManager.setInitTools(message.session_id, message.tools);
             params.sessionManager.update(message.session_id, {
               model: message.model,
+              claudeCodeVersion: message.claude_code_version,
               permissionMode: message.permissionMode,
               fastModeState: message.fast_mode_state,
             });
@@ -682,8 +864,12 @@ export function consumeQuery(params: ConsumeQueryParams): ConsumeQueryHandle {
           if (message.type === "result") {
             streamReceivedResult = true;
             const sessionId = message.session_id ?? (await getSessionId());
-            const agentResult = sdkResultToAgentResult(message);
             const current = params.sessionManager.get(sessionId);
+            const agentResult = sdkResultToAgentResult(
+              message,
+              current,
+              params.sessionManager.getTerminalError(sessionId)
+            );
             const previousTotalTurns = current?.totalTurns ?? 0;
             const previousTotalCostUsd = current?.totalCostUsd ?? 0;
             const computedTotalTurns = previousTotalTurns + agentResult.numTurns;
@@ -753,7 +939,7 @@ export function consumeQuery(params: ConsumeQueryParams): ConsumeQueryHandle {
         if (shouldWaitForInit && !sessionIdResolved) {
           rejectSessionId(
             new Error(
-              `Error [${ErrorCode.INTERNAL}]: query stream ended before receiving session init.`
+              `Error [${ErrorCode.SDK_PROTOCOL_ERROR}]: Query stream ended before receiving session init.`
             )
           );
         } else if (activeSessionId && !streamReceivedResult) {
@@ -771,7 +957,8 @@ export function consumeQuery(params: ConsumeQueryParams): ConsumeQueryHandle {
             );
             const agentResult = errorToAgentResult(
               sessionId,
-              "No result message received from agent."
+              current,
+              params.sessionManager.getTerminalError(sessionId)
             );
             const stored: StoredAgentResult = {
               type: "error",
@@ -798,13 +985,11 @@ export function consumeQuery(params: ConsumeQueryParams): ConsumeQueryHandle {
 
         // Before init: no session to retry, just reject and bail.
         if (shouldWaitForInit && !sessionIdResolved) {
-          rejectSessionId(
-            new Error(
-              errClass === "abort"
-                ? `Error [${ErrorCode.CANCELLED}]: session was cancelled before init.`
-                : `Error [${ErrorCode.INTERNAL}]: ${enhanceWindowsError(err instanceof Error ? err.message : String(err))}`
-            )
-          );
+          const error =
+            errClass === "abort"
+              ? structuredError(ErrorCode.CANCELLED, "Session was cancelled before init.")
+              : classifySdkStartError(err, params.options.model);
+          rejectSessionId(new Error(formatStructuredError(error)));
           return;
         }
 
@@ -828,7 +1013,10 @@ export function consumeQuery(params: ConsumeQueryParams): ConsumeQueryHandle {
               attempt: retryCount,
               maxRetries: MAX_TRANSIENT_RETRIES,
               delayMs: delay,
-              error: err instanceof Error ? err.message : String(err),
+              error: structuredError(
+                ErrorCode.SDK_PROTOCOL_ERROR,
+                "Claude Agent SDK stream failed transiently."
+              ),
             },
             timestamp: new Date().toISOString(),
           });
@@ -870,17 +1058,25 @@ export function consumeQuery(params: ConsumeQueryParams): ConsumeQueryHandle {
             },
             "cleanup"
           );
-          const agentResult =
-            errClass === "abort"
+          const terminalError = params.sessionManager.getTerminalError(sessionId);
+          const agentResult = terminalError
+            ? errorToAgentResult(sessionId, current, terminalError)
+            : errClass === "abort"
               ? {
                   sessionId,
-                  result: `Error [${ErrorCode.CANCELLED}]: Session was cancelled.`,
+                  result: formatStructuredError(
+                    structuredError(ErrorCode.CANCELLED, "Session was cancelled.")
+                  ),
                   isError: true,
+                  error: structuredError(ErrorCode.CANCELLED, "Session was cancelled."),
+                  model: current.model,
+                  claudeCodeVersion: current.claudeCodeVersion,
+                  permissionMode: current.permissionMode,
                   durationMs: 0,
                   numTurns: 0,
                   totalCostUsd: 0,
                 }
-              : errorToAgentResult(sessionId, err);
+              : errorToAgentResult(sessionId, current);
 
           params.sessionManager.setResult(sessionId, {
             type: "error",
