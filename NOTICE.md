@@ -19,9 +19,9 @@ license information is included with the package itself (typically under its `LI
 
 ### Optional native dependencies
 
-Some optional dependencies pulled in by the Claude Agent SDK (or its transitive dependencies)
-may include prebuilt native binaries with licenses such as LGPL. These packages are platform-
-specific (e.g., `@img/sharp-*` and related `libvips` packages).
+Claude Agent SDK `0.3.220` selects one platform-specific optional package such as
+`@anthropic-ai/claude-agent-sdk-darwin-arm64`. These packages contain the prebuilt Claude
+executable and declare their license as “SEE LICENSE IN LICENSE.md”.
 
 If you redistribute this project (or produce bundled artifacts), you are responsible for ensuring
 you comply with any applicable third-party license obligations and include required notices.

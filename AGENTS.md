@@ -215,7 +215,7 @@ If a changed SDK field or message type is not reflected in at least one test, tr
 
 ## Git / PR Workflow
 
-- Base branch: `master`
+- Base branch: `main`
 - Keep commits focused and non-interactive
 - Before commit/PR, run `mise exec -- task ci`.
 
