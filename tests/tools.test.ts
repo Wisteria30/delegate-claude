@@ -481,6 +481,7 @@ describe("executeClaudeCodeReply (async)", () => {
       "/tmp",
       toolCache
     );
+    expect(start.status).toBe("running");
     if (start.status !== "running") throw new Error("expected a running session");
     await waitUntil(() => manager.get(sessionId)?.status === "idle");
     mockQuery.mockClear();
