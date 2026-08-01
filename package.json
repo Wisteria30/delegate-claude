@@ -1,0 +1,97 @@
+{
+  "name": "@leo000001/claude-code-mcp",
+  "version": "2.8.3",
+  "description": "MCP server that runs Claude Code as tools — start coding agents, poll their progress, and control permissions from any MCP client",
+  "type": "module",
+  "main": "dist/index.js",
+  "exports": {
+    ".": {
+      "import": "./dist/index.js"
+    }
+  },
+  "bin": {
+    "claude-code-mcp": "dist/index.js"
+  },
+  "scripts": {
+    "build": "tsup",
+    "dev": "tsup --watch",
+    "start": "node dist/index.js",
+    "typecheck": "tsc -p tsconfig.tests.json --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "e2e:stdio:cancel": "node scripts/e2e/stdio-cancel-regression.mjs --mode fast-cancel --iterations 20",
+    "e2e:stdio:cancel:wp": "node scripts/e2e/stdio-cancel-regression.mjs --mode waiting-permission-cancel --iterations 20",
+    "e2e:stdio:interrupt": "node scripts/e2e/stdio-cancel-regression.mjs --mode fast-interrupt --iterations 20",
+    "e2e:stdio:interrupt:wp": "node scripts/e2e/stdio-cancel-regression.mjs --mode waiting-permission-interrupt --iterations 20",
+    "e2e:stdio:metadata": "npm run build && node scripts/e2e/stdio-metadata-smoke.mjs",
+    "e2e:stdio:reply-race": "node scripts/e2e/stdio-reply-race-regression.mjs",
+    "e2e:stdio:runner": "node scripts/e2e/stdio-runner.mjs --iterations 20",
+    "e2e": "npm run build && vitest run --config e2e/vitest.config.ts",
+    "prepublishOnly": "npm run build",
+    "lint": "eslint src/ tests/",
+    "format": "prettier --write \"src/**/*.ts\" \"tests/**/*.ts\"",
+    "format:check": "prettier --check \"src/**/*.ts\" \"tests/**/*.ts\"",
+    "prepare": "husky"
+  },
+  "lint-staged": {
+    "*.ts": [
+      "prettier --write",
+      "eslint --fix"
+    ]
+  },
+  "keywords": [
+    "mcp",
+    "mcp-server",
+    "claude-code",
+    "claude",
+    "claude-agent-sdk",
+    "anthropic",
+    "agent",
+    "coding-agent",
+    "model-context-protocol",
+    "ai"
+  ],
+  "author": "xihuai18",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/xihuai18/claude-code-mcp.git"
+  },
+  "homepage": "https://github.com/xihuai18/claude-code-mcp#readme",
+  "bugs": {
+    "url": "https://github.com/xihuai18/claude-code-mcp/issues"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "files": [
+    "dist",
+    "LICENSE",
+    "CODE_OF_CONDUCT.md",
+    "CONTRIBUTING.md",
+    "NOTICE.md",
+    "README.md",
+    "SECURITY.md",
+    "CHANGELOG.md"
+  ],
+  "dependencies": {
+    "@anthropic-ai/claude-agent-sdk": "^0.2.81",
+    "@modelcontextprotocol/sdk": "^1.27.1",
+    "zod": "^4.3.6"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.39.3",
+    "@types/node": "^25.3.2",
+    "eslint": "^9.39.3",
+    "husky": "^9.1.7",
+    "lint-staged": "^16.2.7",
+    "prettier": "^3.8.1",
+    "tsup": "^8.5.1",
+    "typescript": "^5.9.3",
+    "typescript-eslint": "^8.56.1",
+    "vitest": "^4.0.18"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}
