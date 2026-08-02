@@ -2,6 +2,7 @@
  * claude_code_session tool - Manage sessions (list, get, cancel, interrupt)
  */
 import type { SessionManager } from "../session/manager.js";
+import { buildSessionSnapshot } from "../session/snapshot.js";
 import type {
   PublicSessionInfo,
   SensitiveSessionInfo,
@@ -11,7 +12,6 @@ import type {
 } from "../types.js";
 import { ErrorCode } from "../types.js";
 import { structuredError } from "../utils/structured-error.js";
-import { buildSessionRedactions } from "../utils/session-redactions.js";
 
 export interface ClaudeCodeSessionInput {
   action: SessionAction;
@@ -33,7 +33,6 @@ function sessionError(
 ): SessionResult {
   return { sessions, error: structuredError(code, message), isError: true };
 }
-
 export function executeClaudeCodeSession(
   input: ClaudeCodeSessionInput,
   sessionManager: SessionManager,
@@ -43,26 +42,12 @@ export function executeClaudeCodeSession(
     return sessionError(ErrorCode.CANCELLED, "Request was cancelled.");
   }
 
-  const toSessionJson = (s: SessionInfo): PublicSessionInfo | SensitiveSessionInfo => {
-    const base = input.includeSensitive
-      ? sessionManager.toSensitiveJSON(s)
-      : sessionManager.toPublicJSON(s);
-    const stored = sessionManager.getResult(s.sessionId);
-    const lastError = stored?.type === "error" ? stored.result.result : undefined;
-    const lastErrorAt = stored?.type === "error" ? stored.createdAt : undefined;
-    return {
-      ...base,
-      pendingPermissionCount: sessionManager.getPendingPermissionCount(s.sessionId),
-      pendingUserQuestionCount: sessionManager.getPendingUserQuestionCount(s.sessionId),
-      eventCount: sessionManager.getEventCount(s.sessionId),
-      currentCursor: sessionManager.getCurrentCursor(s.sessionId),
-      lastEventId: sessionManager.getLastEventId(s.sessionId),
-      ttlMs: sessionManager.getRemainingTtlMs(s.sessionId),
-      lastError,
-      lastErrorAt,
-      redactions: buildSessionRedactions(input.includeSensitive),
-    };
-  };
+  const toSessionJson = (session: SessionInfo): PublicSessionInfo | SensitiveSessionInfo =>
+    buildSessionSnapshot({
+      sessionManager,
+      session,
+      includeSensitive: input.includeSensitive,
+    });
 
   switch (input.action) {
     case "list": {

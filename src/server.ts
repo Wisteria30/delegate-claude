@@ -23,6 +23,19 @@ import { structuredError } from "./utils/structured-error.js";
 declare const __PKG_VERSION__: string;
 const SERVER_VERSION = typeof __PKG_VERSION__ !== "undefined" ? __PKG_VERSION__ : "0.0.0-dev";
 
+function toToolResponse(result: unknown, isError: boolean) {
+  return {
+    content: [
+      {
+        type: "text" as const,
+        text: JSON.stringify(result, null, 2),
+      },
+    ],
+    structuredContent: result as unknown as Record<string, unknown>,
+    isError,
+  };
+}
+
 export function createServerContext(serverCwd: string): {
   server: McpServer;
   sessionManager: SessionManager;
@@ -268,18 +281,6 @@ export function createServerContext(serverCwd: string): {
     })
     .optional()
     .describe("Default: none");
-
-  /** Shape a tool payload into the MCP text+structured response envelope. */
-  const toToolResponse = (payload: unknown, isError: boolean) => ({
-    content: [
-      {
-        type: "text" as const,
-        text: JSON.stringify(payload, null, 2),
-      },
-    ],
-    structuredContent: payload as Record<string, unknown>,
-    isError,
-  });
 
   const structuredErrorSchema = z.object({
     code: z.enum(LocalErrorCode),

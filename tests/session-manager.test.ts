@@ -181,7 +181,7 @@ describe("SessionManager", () => {
       cwd: "/tmp",
       abortController: ac,
     });
-    const json = manager.toJSON(session);
+    const json = manager.toPublicJSON(session);
     expect(json).not.toHaveProperty("abortController");
     expect(json.sessionId).toBe("test-1");
   });

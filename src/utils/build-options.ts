@@ -62,6 +62,26 @@ export interface OptionSource {
 }
 
 /**
+ * Normalize the path-bearing `OptionSource` fields that are also persisted on the session record.
+ *
+ * `buildOptions` normalizes these again on the way to the SDK; this exists so the stored session
+ * snapshot carries the same values the SDK was handed. `pathToClaudeCodeExecutable` is deliberately
+ * not included: it needs validation, which each call site performs at its own point in the
+ * validation order.
+ */
+export function normalizeOptionSourcePaths(
+  src: Pick<OptionSource, "additionalDirectories" | "debugFile">
+): Pick<OptionSource, "additionalDirectories" | "debugFile"> {
+  return {
+    additionalDirectories:
+      src.additionalDirectories !== undefined
+        ? normalizeWindowsPathArray(src.additionalDirectories)
+        : undefined,
+    debugFile: src.debugFile !== undefined ? normalizeWindowsPathLike(src.debugFile) : undefined,
+  };
+}
+
+/**
  * Build SDK `Partial<Options>` from a flat source object.
  *
  * Only copies fields that are explicitly defined (not `undefined`) so that

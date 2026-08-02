@@ -13,7 +13,7 @@ Copyright (c) 2026 claude-code-mcp contributors
 This project depends on third-party packages. Their licenses and terms may impose additional
 requirements on redistribution and use.
 
-### Direct dependencies (from `package.json`)
+### Direct dependencies (resolved versions from `package-lock.json`)
 
 - `@anthropic-ai/claude-agent-sdk@0.3.220` — license is declared as “SEE LICENSE IN README.md” in the package metadata. This package bundles a Claude Code CLI; please review Anthropic's documentation and legal terms referenced by that project before redistributing or deploying.
 - `@anthropic-ai/sdk@0.115.0` — MIT License

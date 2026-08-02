@@ -29,18 +29,15 @@ import {
   isValidResumeToken,
 } from "../utils/resume-token.js";
 import { raceWithAbort } from "../utils/race-with-abort.js";
-import { buildOptions } from "../utils/build-options.js";
+import { buildOptions, normalizeOptionSourcePaths } from "../utils/build-options.js";
 import type { OptionSource } from "../utils/build-options.js";
 import { toSessionCreateParams } from "../session/create-params.js";
-import {
-  normalizeWindowsPathArray,
-  normalizeWindowsPathLike,
-} from "../utils/normalize-windows-path.js";
 import { resolveExplicitClaudeExecutable } from "../utils/claude-executable.js";
 import { normalizeAndAssertWorkingDirectory } from "../utils/working-directory.js";
 import { validatePermissionMode } from "../utils/permission-mode.js";
 import {
   classifySdkStartError,
+  DelegateError,
   formatStructuredError,
   structuredError,
   toStructuredError,
@@ -153,16 +150,13 @@ function buildDiskResumeSource(
     dr.pathToClaudeCodeExecutable !== undefined
       ? resolveExplicitClaudeExecutable(dr.pathToClaudeCodeExecutable, normalizedCwd)
       : undefined;
+  // Drop the resume secret so it never reaches the session record or the SDK options.
   const { resumeToken: _resumeToken, ...source } = dr;
   void _resumeToken;
   const normalizedSource: OptionSource = {
     ...source,
+    ...normalizeOptionSourcePaths(source),
     cwd: normalizedCwd,
-    additionalDirectories:
-      dr.additionalDirectories !== undefined
-        ? normalizeWindowsPathArray(dr.additionalDirectories)
-        : undefined,
-    debugFile: dr.debugFile !== undefined ? normalizeWindowsPathLike(dr.debugFile) : undefined,
     pathToClaudeCodeExecutable,
   };
   if (overrides.effort !== undefined) normalizedSource.effort = overrides.effort;
@@ -453,7 +447,14 @@ export async function executeClaudeCodeReply(
       toolCache,
       onInit: (init) => {
         if (!input.forkSession) return;
-        if (init.session_id === input.sessionId) return;
+        if (init.session_id === input.sessionId) {
+          throw new DelegateError(
+            structuredError(
+              ErrorCode.SDK_PROTOCOL_ERROR,
+              "Fork requested but no new session ID received from agent."
+            )
+          );
+        }
 
         // Restore original session state as soon as we have the fork's session ID.
         // Forking should not affect the original session (including its AbortController).

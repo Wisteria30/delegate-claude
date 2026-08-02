@@ -914,45 +914,50 @@ describe("executeClaudeCodeReply (async)", () => {
     await waitUntil(() => manager.get("forked")?.status === "idle");
   });
 
-  it("should return INTERNAL error when fork requested but no new sessionId is received", async () => {
+  it("should return SDK_PROTOCOL_ERROR when fork requested but no new sessionId is received", async () => {
     manager.create({ sessionId: "orig", cwd: "/tmp" });
     manager.update("orig", { status: "idle" });
+    let streamClosed = false;
 
     mockQuery.mockReturnValue(
       (async function* () {
-        yield {
-          type: "system",
-          subtype: "init",
-          session_id: "orig",
-          uuid: "u1",
-          cwd: "/tmp",
-          tools: ["Read"],
-          claude_code_version: "x",
-          model: "m",
-          permissionMode: "default",
-          apiKeySource: "env",
-          mcp_servers: [],
-          slash_commands: [],
-          output_style: "",
-          skills: [],
-          plugins: [],
-        };
-        yield {
-          type: "result",
-          subtype: "success",
-          result: "ok",
-          duration_ms: 1,
-          num_turns: 1,
-          total_cost_usd: 0,
-          is_error: false,
-          uuid: "u2",
-          session_id: "orig",
-          duration_api_ms: 1,
-          stop_reason: null,
-          usage: {},
-          modelUsage: {},
-          permission_denials: [],
-        };
+        try {
+          yield {
+            type: "system",
+            subtype: "init",
+            session_id: "orig",
+            uuid: "u1",
+            cwd: "/tmp",
+            tools: ["Read"],
+            claude_code_version: "x",
+            model: "m",
+            permissionMode: "default",
+            apiKeySource: "env",
+            mcp_servers: [],
+            slash_commands: [],
+            output_style: "",
+            skills: [],
+            plugins: [],
+          };
+          yield {
+            type: "result",
+            subtype: "success",
+            result: "ok",
+            duration_ms: 1,
+            num_turns: 1,
+            total_cost_usd: 0,
+            is_error: false,
+            uuid: "u2",
+            session_id: "orig",
+            duration_api_ms: 1,
+            stop_reason: null,
+            usage: {},
+            modelUsage: {},
+            permission_denials: [],
+          };
+        } finally {
+          streamClosed = true;
+        }
       })() as unknown as QueryReturn
     );
 
@@ -965,5 +970,13 @@ describe("executeClaudeCodeReply (async)", () => {
     if (res.status === "error") {
       expect(res.error.code).toBe("SDK_PROTOCOL_ERROR");
     }
+    expect(streamClosed).toBe(true);
+    expect(manager.get("orig")).toMatchObject({
+      status: "idle",
+      abortController: undefined,
+      queryInterrupt: undefined,
+    });
+    expect(manager.getResult("orig")).toBeUndefined();
+    expect(manager.readEvents("orig").events).toEqual([]);
   });
 });

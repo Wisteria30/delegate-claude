@@ -196,7 +196,8 @@ async function main(): Promise<void> {
   process.stdin.on("end", onStdinEnd);
   process.stdin.on("close", onStdinClose);
 
-  // Check Windows bash.exe availability and warn early
+  // Check Windows bash.exe availability early; an explicitly configured but
+  // missing CLAUDE_CODE_GIT_BASH_PATH fails startup instead of warning.
   checkWindowsBashAvailability();
 
   await server.connect(transport);

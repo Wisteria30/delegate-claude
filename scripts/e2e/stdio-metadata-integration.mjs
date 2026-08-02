@@ -2,6 +2,14 @@ import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 import path from "node:path";
 
+// Sorted, so it can be compared element-wise against the sorted live tool list.
+const EXPECTED_TOOL_NAMES = [
+  "claude_code",
+  "claude_code_check",
+  "claude_code_reply",
+  "claude_code_session",
+];
+
 function transportConfig() {
   return {
     command: process.execPath,
@@ -50,11 +58,10 @@ async function main() {
     const claudeCode = listed.tools.find((tool) => tool.name === "claude_code");
     const claudeCodeCheck = listed.tools.find((tool) => tool.name === "claude_code_check");
 
+    const sortedToolNames = [...toolNames].sort();
     assert(
-      JSON.stringify([...toolNames].sort()) ===
-        JSON.stringify(
-          ["claude_code", "claude_code_check", "claude_code_reply", "claude_code_session"].sort()
-        ),
+      sortedToolNames.length === EXPECTED_TOOL_NAMES.length &&
+        sortedToolNames.every((name, index) => name === EXPECTED_TOOL_NAMES[index]),
       `unexpected MCP tool set: ${toolNames.join(", ")}`
     );
     assert(

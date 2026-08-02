@@ -1060,15 +1060,6 @@ export class SessionManager {
     }
   }
 
-  /**
-   * Serialize session info for external consumption.
-   * Prefer explicit serializers below. This method is kept for backward compatibility
-   * but returns the redacted public shape.
-   */
-  toJSON(info: SessionInfo): PublicSessionInfo {
-    return this.toPublicJSON(info);
-  }
-
   /** Serialize session info when includeSensitive=true (still excludes secrets like env) */
   toSensitiveJSON(info: SessionInfo): SensitiveSessionInfo {
     const base = this.toPublicJSON(info);

@@ -10,7 +10,9 @@ export function normalizeAndAssertWorkingDirectory(
   portableTmpAlias: "preserve" | "resolve",
   platform: NodeJS.Platform = process.platform
 ): string {
-  // Start preserves client-supplied /tmp paths; disk and in-memory replies resolve stored aliases.
+  // `claude_code` validates the literal client-supplied path ("preserve"); both `claude_code_reply`
+  // entry points map a `/tmp` prefix onto the native temp dir ("resolve"). On win32 that means a
+  // session started at `/tmp` can validate against `C:\tmp` but reply against `os.tmpdir()`.
   const normalizedCwd = normalizeWindowsPathLike(cwd, platform);
   const resolvedCwd =
     portableTmpAlias === "resolve"

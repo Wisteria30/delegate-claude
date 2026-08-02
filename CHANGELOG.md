@@ -16,6 +16,8 @@
 - Remove configurable model substitution so an unavailable requested model fails without trying another model.
 - Rename the npm package, executable, server identity, repository metadata, and resource scheme to `delegate-claude` while preserving the four MCP tool names.
 - Revalidate stored explicit Claude Code executables before every reply and keep only the validated path in disk-resume session state.
+- Treat an explicit Windows Git Bash path as authoritative and reject an invalid path at startup instead of selecting another installation.
+- Remove obsolete local regression-script aliases and make the waiting-permission race check fail when it cannot observe its required state.
 
 ### Documentation
 

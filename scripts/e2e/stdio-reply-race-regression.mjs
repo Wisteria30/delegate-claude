@@ -9,10 +9,28 @@ const CASES = [
   "waiting-permission-cancel",
 ];
 
-function parsePositiveIntEnv(name, fallback) {
+function parsePositiveInt(value, source) {
+  if (!/^[1-9]\d*$/.test(value)) {
+    throw new Error(`Invalid ${source} '${value}': expected a positive integer.`);
+  }
+  const parsed = Number.parseInt(value, 10);
+  if (!Number.isSafeInteger(parsed)) {
+    throw new Error(`Invalid ${source} '${value}': expected a positive integer.`);
+  }
+  return parsed;
+}
+
+function parsePositiveIntEnv(name, defaultValue) {
   const raw = process.env[name];
-  const parsed = Number.parseInt(raw ?? "", 10);
-  return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
+  return raw === undefined ? defaultValue : parsePositiveInt(raw, name);
+}
+
+function requiredFlagValue(argv, index, flag) {
+  const value = argv[index + 1];
+  if (value === undefined || value.startsWith("--")) {
+    throw new Error(`Missing value for ${flag}.`);
+  }
+  return value;
 }
 
 function parseArgs(argv) {
@@ -25,60 +43,44 @@ function parseArgs(argv) {
     startRetryDelayMs: parsePositiveIntEnv("npm_config_start_retry_delay_ms", 750),
     waitingAttempts: parsePositiveIntEnv("npm_config_waiting_attempts", 3),
   };
-  const positional = [];
   for (let i = 2; i < argv.length; i += 1) {
     const arg = argv[i];
-    if (arg === "--case" && argv[i + 1]) {
-      parsed.caseName = argv[i + 1];
+    if (arg === "--case") {
+      parsed.caseName = requiredFlagValue(argv, i, arg);
       i += 1;
       continue;
     }
-    if (arg === "--iterations" && argv[i + 1]) {
-      parsed.iterations = Number.parseInt(argv[i + 1], 10);
+    if (arg === "--iterations") {
+      parsed.iterations = parsePositiveInt(requiredFlagValue(argv, i, arg), arg);
       i += 1;
       continue;
     }
-    if (arg === "--poll-interval-ms" && argv[i + 1]) {
-      parsed.pollIntervalMs = Number.parseInt(argv[i + 1], 10);
+    if (arg === "--poll-interval-ms") {
+      parsed.pollIntervalMs = parsePositiveInt(requiredFlagValue(argv, i, arg), arg);
       i += 1;
       continue;
     }
-    if (arg === "--max-polls" && argv[i + 1]) {
-      parsed.maxPolls = Number.parseInt(argv[i + 1], 10);
+    if (arg === "--max-polls") {
+      parsed.maxPolls = parsePositiveInt(requiredFlagValue(argv, i, arg), arg);
       i += 1;
       continue;
     }
-    if (arg === "--start-retries" && argv[i + 1]) {
-      parsed.startRetries = Number.parseInt(argv[i + 1], 10);
+    if (arg === "--start-retries") {
+      parsed.startRetries = parsePositiveInt(requiredFlagValue(argv, i, arg), arg);
       i += 1;
       continue;
     }
-    if (arg === "--start-retry-delay-ms" && argv[i + 1]) {
-      parsed.startRetryDelayMs = Number.parseInt(argv[i + 1], 10);
+    if (arg === "--start-retry-delay-ms") {
+      parsed.startRetryDelayMs = parsePositiveInt(requiredFlagValue(argv, i, arg), arg);
       i += 1;
       continue;
     }
-    if (arg === "--waiting-attempts" && argv[i + 1]) {
-      parsed.waitingAttempts = Number.parseInt(argv[i + 1], 10);
+    if (arg === "--waiting-attempts") {
+      parsed.waitingAttempts = parsePositiveInt(requiredFlagValue(argv, i, arg), arg);
       i += 1;
       continue;
     }
-    if (!arg.startsWith("--")) positional.push(arg);
-  }
-
-  // npm can forward extra args as bare positional values in some shells, e.g.:
-  // `node ... --case all 1 running-cancel`
-  // Keep this fallback so `npm run ... -- --iterations 1 --case running-cancel` remains usable.
-  for (const token of positional) {
-    const maybeInt = Number.parseInt(token, 10);
-    if (Number.isFinite(maybeInt) && String(maybeInt) === token && maybeInt > 0) {
-      parsed.iterations = maybeInt;
-      continue;
-    }
-    const lower = token.toLowerCase();
-    if (lower === "all" || CASES.includes(lower)) {
-      parsed.caseName = lower;
-    }
+    throw new Error(`Unknown argument '${arg}'.`);
   }
   return parsed;
 }
@@ -126,7 +128,7 @@ function startArguments(caseName) {
     return {
       ...base,
       prompt:
-        "Use the Read tool with file_path exactly \"package.json\" to inspect this project, then summarize the scripts section in one sentence. Do not answer from memory; read the file first.",
+        'Use the Read tool with file_path exactly "package.json" to inspect this project, then summarize the scripts section in one sentence. Do not answer from memory; read the file first.',
       cwd,
     };
   }
@@ -436,37 +438,14 @@ async function runCaseIteration(client, caseName, iteration, config) {
     const waitingSetup = await ensureWaitingPermission(client, caseName, config);
     record.waitingSetup = waitingSetup;
     if (!waitingSetup.ok || !waitingSetup.sessionId) {
-      if (waitingSetup.autoApprovalLikely) {
-        record.waitingFallback = {
-          reason:
-            "waiting_permission not observed; runtime appears to auto-approve tool calls. Falling back to running-state race.",
-        };
-        const fallbackCase = caseName.endsWith("interrupt")
-          ? "running-interrupt"
-          : "running-cancel";
-        const fallbackStart = await startSessionWithRetry(client, fallbackCase, config);
-        record.startAttempts = fallbackStart.attempts;
-        record.start = fallbackStart.start;
-        const fallbackSessionId =
-          typeof fallbackStart.start?.sessionId === "string" ? fallbackStart.start.sessionId : "";
-        if (fallbackStart.start.status !== "running" || !fallbackSessionId) {
-          record.failed = true;
-          record.failureStep = "start_fallback";
-          record.endedAt = new Date().toISOString();
-          return record;
-        }
-        sessionId = fallbackSessionId;
-      } else {
-        record.failed = true;
-        record.failureStep = "waiting_permission_not_observed";
-        record.endedAt = new Date().toISOString();
-        return record;
-      }
-    } else {
-      record.start = waitingSetup.start;
-      sessionId = waitingSetup.sessionId;
-      cursor = waitingSetup.cursor;
+      record.failed = true;
+      record.failureStep = "waiting_permission_not_observed";
+      record.endedAt = new Date().toISOString();
+      return record;
     }
+    record.start = waitingSetup.start;
+    sessionId = waitingSetup.sessionId;
+    cursor = waitingSetup.cursor;
   } else {
     const started = await startSessionWithRetry(client, caseName, config);
     record.startAttempts = started.attempts;
