@@ -2,7 +2,7 @@ import { ResourceTemplate, type McpServer } from "@modelcontextprotocol/sdk/serv
 import type { ReadResourceResult } from "@modelcontextprotocol/sdk/types.js";
 import { createHash } from "node:crypto";
 import type { SessionManager } from "../session/manager.js";
-import { buildSessionRedactions } from "../session/redactions.js";
+import { buildSessionSnapshot } from "../session/snapshot.js";
 import {
   ErrorCode,
   DEFAULT_POLL_INTERVAL_RUNNING_MS,
@@ -548,22 +548,14 @@ export function registerResources(
                   message: `Session '${sessionId}' not found.`,
                 };
               }
-              const base = deps.sessionManager.toPublicJSON(session);
-              const stored = deps.sessionManager.getResult(sessionId);
               return {
                 sessionId,
                 found: true,
-                session: {
-                  ...base,
-                  pendingPermissionCount: deps.sessionManager.getPendingPermissionCount(sessionId),
-                  eventCount: deps.sessionManager.getEventCount(sessionId),
-                  currentCursor: deps.sessionManager.getCurrentCursor(sessionId),
-                  lastEventId: deps.sessionManager.getLastEventId(sessionId),
-                  ttlMs: deps.sessionManager.getRemainingTtlMs(sessionId),
-                  lastError: stored?.type === "error" ? stored.result.result : undefined,
-                  lastErrorAt: stored?.type === "error" ? stored.createdAt : undefined,
-                  redactions: buildSessionRedactions(false),
-                },
+                session: buildSessionSnapshot({
+                  sessionManager: deps.sessionManager,
+                  session,
+                  includeSensitive: false,
+                }),
               };
             })();
 

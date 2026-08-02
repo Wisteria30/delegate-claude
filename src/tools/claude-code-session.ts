@@ -2,7 +2,7 @@
  * claude_code_session tool - Manage sessions (list, get, cancel, interrupt)
  */
 import type { SessionManager } from "../session/manager.js";
-import { buildSessionRedactions } from "../session/redactions.js";
+import { buildSessionSnapshot } from "../session/snapshot.js";
 import type {
   PublicSessionInfo,
   SensitiveSessionInfo,
@@ -36,25 +36,12 @@ export function executeClaudeCodeSession(
     };
   }
 
-  const toSessionJson = (s: SessionInfo): PublicSessionInfo | SensitiveSessionInfo => {
-    const base = input.includeSensitive
-      ? sessionManager.toSensitiveJSON(s)
-      : sessionManager.toPublicJSON(s);
-    const stored = sessionManager.getResult(s.sessionId);
-    const lastError = stored?.type === "error" ? stored.result.result : undefined;
-    const lastErrorAt = stored?.type === "error" ? stored.createdAt : undefined;
-    return {
-      ...base,
-      pendingPermissionCount: sessionManager.getPendingPermissionCount(s.sessionId),
-      eventCount: sessionManager.getEventCount(s.sessionId),
-      currentCursor: sessionManager.getCurrentCursor(s.sessionId),
-      lastEventId: sessionManager.getLastEventId(s.sessionId),
-      ttlMs: sessionManager.getRemainingTtlMs(s.sessionId),
-      lastError,
-      lastErrorAt,
-      redactions: buildSessionRedactions(input.includeSensitive),
-    };
-  };
+  const toSessionJson = (session: SessionInfo): PublicSessionInfo | SensitiveSessionInfo =>
+    buildSessionSnapshot({
+      sessionManager,
+      session,
+      includeSensitive: input.includeSensitive,
+    });
 
   switch (input.action) {
     case "list": {
