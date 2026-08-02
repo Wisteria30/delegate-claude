@@ -77,8 +77,7 @@ export interface ClaudeCodeCheckInput {
 }
 
 export type ClaudeCodeCheckResult =
-  | CheckResult
-  | { sessionId: string; error: StructuredError; isError: true };
+  CheckResult | { sessionId: string; error: StructuredError; isError: true };
 
 function checkError(sessionId: string, code: ErrorCode, message: string): ClaudeCodeCheckResult {
   return { sessionId, error: structuredError(code, message), isError: true };

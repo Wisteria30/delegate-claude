@@ -52,11 +52,20 @@ describe("normalizeAndAssertWorkingDirectory", () => {
   });
 
   it("reports a metadata read failure as an inaccessible path", () => {
+    const cause = new Error("permission denied");
     vi.mocked(statSync).mockImplementation(() => {
-      throw new Error("permission denied");
+      throw cause;
     });
-    expect(() => normalizeAndAssertWorkingDirectory("/blocked", "cwd", "preserve")).toThrow(
-      "Error [INVALID_ARGUMENT]: cwd is not accessible: /blocked (permission denied)"
-    );
+    let thrown: unknown;
+    try {
+      normalizeAndAssertWorkingDirectory("/blocked", "cwd", "preserve");
+    } catch (error) {
+      thrown = error;
+    }
+
+    expect(thrown).toMatchObject({
+      message: "Error [INVALID_ARGUMENT]: cwd is not accessible: /blocked (permission denied)",
+      cause,
+    });
   });
 });

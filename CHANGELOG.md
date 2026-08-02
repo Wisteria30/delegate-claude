@@ -4,6 +4,7 @@
 
 ### Improvements
 
+- Consolidate the open Dependabot updates for the lint, formatting, test, type-definition, schema, and GitHub checkout toolchains while retaining TypeScript 5 until the lint toolchain supports TypeScript 7.
 - Package the canonical `delegate-claude` skill and add credential-backed `verify:live` and `verify:codex` acceptance commands.
 - Expose sanitized SDK `system/init` capabilities as a progress event so callers can verify effective runtime tools, MCP connections, skills, and plugins without leaking plugin paths or authentication details.
 - Add the full SDK 0.3.220 permission-mode contract, including guarded dangerous bypass, reply inheritance, `xhigh` effort, SDK thinking passthrough, and effective init metadata in session/results.

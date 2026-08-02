@@ -18,7 +18,7 @@ requirements on redistribution and use.
 - `@anthropic-ai/claude-agent-sdk@0.3.220` — license is declared as “SEE LICENSE IN README.md” in the package metadata. This package bundles a Claude Code CLI; please review Anthropic's documentation and legal terms referenced by that project before redistributing or deploying.
 - `@anthropic-ai/sdk@0.115.0` — MIT License
 - `@modelcontextprotocol/sdk@1.30.0` — MIT License
-- `zod@4.3.6` — MIT License
+- `zod@4.4.3` — MIT License
 
 For a complete dependency graph, see `package-lock.json`. When installed, each dependency’s
 license information is included with the package itself (typically under its `LICENSE` file or

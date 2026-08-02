@@ -115,8 +115,7 @@ describe("Resources", () => {
       expect(Array.isArray(parsed.tools)).toBe(true);
       const firstTool = Array.isArray(parsed.tools)
         ? (parsed.tools[0] as
-            | { permissionModel?: unknown; schemaAvailability?: unknown }
-            | undefined)
+            { permissionModel?: unknown; schemaAvailability?: unknown } | undefined)
         : undefined;
       expect(firstTool?.permissionModel).toBe("policy_controlled");
       expect(firstTool?.schemaAvailability).toBe("none");

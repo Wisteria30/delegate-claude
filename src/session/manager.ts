@@ -1205,13 +1205,13 @@ export class SessionManager {
       toDropForSoftLimit -= dropOldestMatching(toDropForSoftLimit, (event) => !event.pinned);
     }
     if (toDropForSoftLimit > 0) {
-      toDropForSoftLimit -= dropOldestMatching(toDropForSoftLimit, isDroppablePermissionEvent);
+      dropOldestMatching(toDropForSoftLimit, isDroppablePermissionEvent);
     }
 
     // Hard limit: only drop permission-related pinned events that are safe to evict.
-    let toDropForHardLimit = remaining - buffer.hardMaxSize;
+    const toDropForHardLimit = remaining - buffer.hardMaxSize;
     if (toDropForHardLimit > 0) {
-      toDropForHardLimit -= dropOldestMatching(toDropForHardLimit, isDroppablePermissionEvent);
+      dropOldestMatching(toDropForHardLimit, isDroppablePermissionEvent);
     }
 
     if (droppedIds.size > 0) {
