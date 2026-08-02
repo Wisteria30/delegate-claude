@@ -9,7 +9,12 @@
 - Expand SDK stream/event mapping for `rate_limit_event`, `system/api_retry`, `system/local_command_output`, `system/elicitation_complete`, `system/compact_boundary`, and partial `stream_event` output.
 - Preserve newer SDK metadata in session/results, including `fastModeState` and richer permission prompt labels (`title`, `displayName`).
 - Prefer SDK permission `suggestions` for `allow_for_session` responses and sync session metadata from `system/init` (for example actual model / permission mode).
-- Add default Claude executable resolution with explicit env overrides (`CLAUDE_CODE_MCP_DEFAULT_CLAUDE_PATH` / `CLAUDE_CODE_MCP_DEFAULT_CLAUDE_COMMAND`) and auto-detection order `claude` -> `claude-internal` -> SDK-bundled.
+- Use SDK 0.3.220's bundled Claude Code by default, validate an explicit `pathToClaudeCodeExecutable` before starting a query, and remove local command discovery and server-level executable overrides.
+- Remove configurable model substitution so an unavailable requested model fails without trying another model.
+- Rename the npm package, executable, server identity, repository metadata, and resource scheme to `delegate-claude` while preserving the four MCP tool names.
+- Revalidate stored explicit Claude Code executables before every reply and keep only the validated path in disk-resume session state.
+- Treat an explicit Windows Git Bash path as authoritative and reject an invalid path at startup instead of selecting another installation.
+- Remove obsolete local regression-script aliases and make the waiting-permission race check fail when it cannot observe its required state.
 
 ### Documentation
 
@@ -21,6 +26,7 @@
 ### Tests
 
 - Add a reusable stdio metadata integration script to verify agent-visible tool/resource guidance through a real MCP client transport.
+- Verify npm package identity, executable mapping, and required license notices from dry-run metadata and the generated tarball.
 
 ## 2.5.0 (2026-02-27)
 

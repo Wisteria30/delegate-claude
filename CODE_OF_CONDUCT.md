@@ -30,8 +30,8 @@ Examples of unacceptable behavior:
 
 Instances of abusive, harassing, or otherwise unacceptable behavior may be reported:
 
-- Privately via [GitHub Security Advisories](https://github.com/xihuai18/claude-code-mcp/security/advisories/new) (preferred for sensitive reports)
-- Publicly via [GitHub Issues](https://github.com/xihuai18/claude-code-mcp/issues) for non-sensitive matters
+- Privately via [GitHub Security Advisories](https://github.com/Wisteria30/delegate-claude/security/advisories/new) (preferred for sensitive reports)
+- Publicly via [GitHub Issues](https://github.com/Wisteria30/delegate-claude/issues) for non-sensitive matters
 
 For security vulnerabilities, please follow [SECURITY.md](SECURITY.md).
 

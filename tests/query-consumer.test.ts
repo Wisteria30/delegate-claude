@@ -2560,8 +2560,7 @@ describe("integration: consumeQuery + executeClaudeCodeCheck respond_permission"
     // Step 1: poll — should see waiting_permission with actions
     const polled = executeClaudeCodeCheck(
       { action: "poll", sessionId: "sess-e2e" },
-      manager,
-      toolCache
+      manager
     ) as CheckResult;
 
     expect(polled.status).toBe("waiting_permission");
@@ -2579,8 +2578,7 @@ describe("integration: consumeQuery + executeClaudeCodeCheck respond_permission"
         requestId,
         decision: "allow",
       },
-      manager,
-      toolCache
+      manager
     ) as CheckResult;
 
     expect("isError" in responded && responded.isError).toBeFalsy();
@@ -2593,8 +2591,7 @@ describe("integration: consumeQuery + executeClaudeCodeCheck respond_permission"
     // Step 3: final poll — session should be idle with result
     const final = executeClaudeCodeCheck(
       { action: "poll", sessionId: "sess-e2e" },
-      manager,
-      toolCache
+      manager
     ) as CheckResult;
 
     expect(final.status).toBe("idle");

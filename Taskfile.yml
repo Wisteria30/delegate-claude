@@ -28,6 +28,7 @@ tasks:
 
   build:
     desc: Build the package
+    run: once
     cmds:
       - npm run build
 
@@ -38,6 +39,13 @@ tasks:
     cmds:
       - node scripts/e2e/stdio-metadata-integration.mjs
 
+  test:package:
+    desc: Verify the npm dry-run metadata and packed tarball contract
+    deps:
+      - build
+    cmds:
+      - node scripts/e2e/package-metadata-integration.mjs
+
   ci:
     desc: Run the complete local and CI quality gate
     cmds:
@@ -47,6 +55,7 @@ tasks:
       - task: typecheck
       - task: test
       - task: test:stdio
+      - task: test:package
 
   pre-commit:
     desc: Check staged files, types, and tests

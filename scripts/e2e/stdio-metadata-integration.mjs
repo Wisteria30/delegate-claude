@@ -2,6 +2,14 @@ import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 import path from "node:path";
 
+// Sorted, so it can be compared element-wise against the sorted live tool list.
+const EXPECTED_TOOL_NAMES = [
+  "claude_code",
+  "claude_code_check",
+  "claude_code_reply",
+  "claude_code_session",
+];
+
 function transportConfig() {
   return {
     command: process.execPath,
@@ -37,15 +45,25 @@ async function main() {
   try {
     await client.connect(transport);
 
+    const serverVersion = client.getServerVersion();
+    assert(serverVersion?.name === "delegate-claude", "server name is not delegate-claude");
+    assert(serverVersion?.title === "delegate-claude", "server title is not delegate-claude");
+    assert(
+      serverVersion?.websiteUrl === "https://github.com/Wisteria30/delegate-claude",
+      "server websiteUrl is not the delegate-claude repository"
+    );
+
     const listed = await client.listTools();
     const toolNames = listed.tools.map((tool) => tool.name);
     const claudeCode = listed.tools.find((tool) => tool.name === "claude_code");
     const claudeCodeCheck = listed.tools.find((tool) => tool.name === "claude_code_check");
 
-    assert(toolNames.includes("claude_code"), "claude_code tool missing");
-    assert(toolNames.includes("claude_code_reply"), "claude_code_reply tool missing");
-    assert(toolNames.includes("claude_code_session"), "claude_code_session tool missing");
-    assert(toolNames.includes("claude_code_check"), "claude_code_check tool missing");
+    const sortedToolNames = [...toolNames].sort();
+    assert(
+      sortedToolNames.length === EXPECTED_TOOL_NAMES.length &&
+        sortedToolNames.every((name, index) => name === EXPECTED_TOOL_NAMES[index]),
+      `unexpected MCP tool set: ${toolNames.join(", ")}`
+    );
     assert(
       claudeCode?.description?.includes("No final result is returned here"),
       "claude_code description lost async result guidance"
@@ -61,20 +79,28 @@ async function main() {
 
     const resources = await client.listResources();
     const resourceUris = resources.resources.map((resource) => resource.uri);
-    assert(resourceUris.includes("claude-code-mcp:///quickstart"), "quickstart resource missing");
-    assert(resourceUris.includes("claude-code-mcp:///gotchas"), "gotchas resource missing");
-    assert(resourceUris.includes("claude-code-mcp:///compat-report"), "compat-report resource missing");
+    assert(resourceUris.includes("delegate-claude:///quickstart"), "quickstart resource missing");
+    assert(resourceUris.includes("delegate-claude:///gotchas"), "gotchas resource missing");
+    assert(
+      resourceUris.includes("delegate-claude:///compat-report"),
+      "compat-report resource missing"
+    );
 
     const quickstartText = getTextContent(
-      await client.readResource({ uri: "claude-code-mcp:///quickstart" })
+      await client.readResource({ uri: "delegate-claude:///quickstart" })
     );
-    const gotchasText = getTextContent(await client.readResource({ uri: "claude-code-mcp:///gotchas" }));
+    const gotchasText = getTextContent(
+      await client.readResource({ uri: "delegate-claude:///gotchas" })
+    );
     const compatText = getTextContent(
-      await client.readResource({ uri: "claude-code-mcp:///compat-report" })
+      await client.readResource({ uri: "delegate-claude:///compat-report" })
     );
     const compat = JSON.parse(compatText || "{}");
 
-    assert(quickstartText.includes("Persist these client-side"), "quickstart missing stored-state guidance");
+    assert(
+      quickstartText.includes("Persist these client-side"),
+      "quickstart missing stored-state guidance"
+    );
     assert(quickstartText.includes("nextCursor"), "quickstart missing nextCursor guidance");
     assert(
       quickstartText.includes("respond_permission"),
@@ -84,8 +110,8 @@ async function main() {
     assert(gotchasText.includes("Remedy:"), "gotchas missing remedy guidance");
     assert(Array.isArray(compat.guidance), "compat-report guidance missing");
     assert(
-      compat.guidance.some((item) =>
-        typeof item === "string" && item.includes("README-level documentation is visible")
+      compat.guidance.some(
+        (item) => typeof item === "string" && item.includes("README-level documentation is visible")
       ),
       "compat-report missing model-visibility guidance"
     );
@@ -96,6 +122,11 @@ async function main() {
           ok: true,
           toolCount: listed.tools.length,
           resourceCount: resources.resources.length,
+          identity: {
+            server: serverVersion?.name,
+            title: serverVersion?.title,
+            websiteUrl: serverVersion?.websiteUrl,
+          },
           checked: {
             toolDescriptions: ["claude_code", "claude_code_check"],
             resources: ["quickstart", "gotchas", "compat-report"],
@@ -111,6 +142,8 @@ async function main() {
 }
 
 main().catch((error) => {
-  process.stderr.write(`${error instanceof Error ? error.stack ?? error.message : String(error)}\n`);
+  process.stderr.write(
+    `${error instanceof Error ? (error.stack ?? error.message) : String(error)}\n`
+  );
   process.exitCode = 1;
 });

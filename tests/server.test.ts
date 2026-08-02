@@ -33,6 +33,25 @@ describe("MCP Server", () => {
     expect(server).toHaveProperty("close");
   });
 
+  it("should expose the delegate-claude server identity", async () => {
+    const server = createServer("/tmp");
+    const client = new Client({ name: "test-client", version: "0.0.0" }, { capabilities: {} });
+    const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+
+    try {
+      await server.connect(serverTransport);
+      await client.connect(clientTransport);
+      expect(client.getServerVersion()).toMatchObject({
+        name: "delegate-claude",
+        title: "delegate-claude",
+        websiteUrl: "https://github.com/Wisteria30/delegate-claude",
+      });
+    } finally {
+      await client.close();
+      await server.close();
+    }
+  });
+
   it("should return structuredContent for tool results", async () => {
     const server = createServer("/tmp");
     const client = new Client({ name: "test-client", version: "0.0.0" }, { capabilities: {} });
@@ -162,7 +181,7 @@ describe("MCP Server", () => {
     }
   });
 
-  it("should keep claude_code advanced schema at 24 low-frequency fields", async () => {
+  it("should keep claude_code advanced schema at 23 low-frequency fields", async () => {
     const server = createServer("/tmp");
     const client = new Client({ name: "test-client", version: "0.0.0" }, { capabilities: {} });
     const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
@@ -188,7 +207,7 @@ describe("MCP Server", () => {
       expect(topLevelProps).not.toHaveProperty("sessionInitTimeoutMs");
       const advancedProps = claudeCode?.inputSchema?.properties?.advanced?.properties ?? {};
       const keys = Object.keys(advancedProps);
-      expect(keys).toHaveLength(24);
+      expect(keys).toHaveLength(23);
       expect(keys).not.toContain("effort");
       expect(keys).not.toContain("thinking");
       expect(keys).toContain("promptSuggestions");

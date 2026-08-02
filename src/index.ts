@@ -1,15 +1,14 @@
 /**
- * claude-code-mcp - MCP server entry point
+ * delegate-claude - MCP server entry point
  *
  * Starts the MCP server with stdio transport.
- * Usage: npx claude-code-mcp
+ * Usage: npx delegate-claude
  */
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { createServerContext } from "./server.js";
 import { isBenignRuntimeError } from "./utils/runtime-errors.js";
 import { decideStdinShutdown } from "./utils/stdin-shutdown.js";
 import { checkWindowsBashAvailability } from "./utils/windows.js";
-import { checkDefaultClaudeExecutableAvailability } from "./utils/claude-executable.js";
 
 const STDIN_SHUTDOWN_CHECK_MS = 750;
 const STDIN_SHUTDOWN_MAX_WAIT_MS = process.platform === "win32" ? 15_000 : 10_000;
@@ -190,9 +189,9 @@ async function main(): Promise<void> {
   process.stdin.on("end", onStdinEnd);
   process.stdin.on("close", onStdinClose);
 
-  // Check Windows bash.exe availability and warn early
+  // Check Windows bash.exe availability early; an explicitly configured but
+  // missing CLAUDE_CODE_GIT_BASH_PATH fails startup instead of warning.
   checkWindowsBashAvailability();
-  checkDefaultClaudeExecutableAvailability();
 
   await server.connect(transport);
   server.sendToolListChanged();
@@ -209,7 +208,7 @@ async function main(): Promise<void> {
   } catch {
     // ignore logging failures (client may not support logging)
   }
-  console.error(`claude-code-mcp server started (transport=stdio, cwd: ${serverCwd})`);
+  console.error(`delegate-claude server started (transport=stdio, cwd: ${serverCwd})`);
 }
 
 main().catch((err) => {

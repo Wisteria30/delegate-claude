@@ -1,6 +1,6 @@
-# claude-code-mcp 第三方 CLI 大模型 E2E 执行手册
+# delegate-claude 第三方 CLI 大模型 E2E 执行手册
 
-本手册只面向一种场景：第三方 CLI 客户端已经接入并启用了本 MCP server（`@leo000001/claude-code-mcp`），你需要指导该客户端中的大模型正确使用并测试本 MCP。
+本手册只面向一种场景：第三方 CLI 客户端已经接入并启用了本 MCP server（`@wisteria30/delegate-claude`），你需要指导该客户端中的大模型正确使用并测试本 MCP。
 
 你应优先通过 MCP 工具调用验证事实，不要根据推测给出测试结论。
 
@@ -120,7 +120,7 @@
 
 下面每个用例都包含：目标、指令模板、通过判据、失败恢复。
 
-### 5.1 用例 A：连接与发现（Smoke）
+### 5.1 用例 A：连接与发现（最小的基本动作确认）
 
 目标：确认 MCP 握手可用，工具和资源可发现。
 
@@ -129,7 +129,7 @@
 ```text
 请先通过客户端工具注册表或可调用性确认 4 个工具：claude_code、claude_code_reply、claude_code_check、claude_code_session。
 （可选）如果客户端支持 tools/list 协议方法，可调用 tools/list 做二次确认；不支持时跳过此步，不影响判定。
-然后调用 resources/list，并至少读取一个资源（建议 claude-code-mcp:///server-info、claude-code-mcp:///quickstart、claude-code-mcp:///errors 和 claude-code-mcp:///compat-report）。
+然后调用 resources/list，并至少读取一个资源（建议 delegate-claude:///server-info、delegate-claude:///quickstart、delegate-claude:///errors 和 delegate-claude:///compat-report）。
 请输出你读到的关键字段。
 ```
 
@@ -157,12 +157,12 @@
 - `strictAllowedTools`: `true`（建议开启，确保 `allowedTools` 是严格白名单语义；该参数在 `claude_code` 和 `diskResumeConfig` 中均可用，部分客户端可能不在 UI 中展示但实际可传递）
   - 注意：`strictAllowedTools` 保证执行层拦截（未授权工具的 `tool_use` 会被 server 拒绝），但不保证模型不会先生成未授权工具的调用计划。评估时应以 `permission_result` / 实际执行结果为准，而非模型输出的 `tool_use` 文本。
 - `disallowedTools`: 仅当通过 `includeTools=true` 确认 Bash 在运行时工具列表中时才设置为 `["Bash"]`；否则省略该字段（避免 `Unknown disallowedTools: Bash` 告警）
-- 即使 prompt 中明确要求“不要调用 Bash”，也应以策略约束（`strictAllowedTools` / `allowedTools` / `disallowedTools`）作为主判据（smoke 仅验证基础读写闭环；权限闭环由用例 C 覆盖）
+- 即使 prompt 中明确要求“不要调用 Bash”，也应以策略约束（`strictAllowedTools` / `allowedTools` / `disallowedTools`）作为主判据（最小的基本动作确认仅验证基础读写闭环；权限闭环由用例 C 覆盖）
 
 给模型的任务 prompt 示例：
 
 ```text
-在当前目录创建 mcp_smoke.txt，写入 ok；然后读取并输出该文件内容；最后总结执行步骤。
+在当前目录创建 mcp_basic_check.txt，写入 ok；然后读取并输出该文件内容；最后总结执行步骤。
 Windows 场景重要约束：若你生成的路径包含 /home/ 或其他 POSIX 风格路径，必须先自检并改写为当前 cwd 下的 Windows 绝对路径后再执行。
 ```
 
@@ -171,7 +171,7 @@ Windows 场景重要约束：若你生成的路径包含 /home/ 或其他 POSIX 
 1. `claude_code` 返回 `sessionId` 且 `status=running`。
 2. 轮询最终进入 `idle` 或 `error` 或 `cancelled`。
 3. 终态有 `result`（成功或失败均需有可解释结果）；若失败，记录 `result.errorSubtype`。
-4. 成功路径下，文件 `mcp_smoke.txt` 存在且内容为 `ok`。
+4. 成功路径下，文件 `mcp_basic_check.txt` 存在且内容为 `ok`。
 
 失败恢复：
 
@@ -435,7 +435,7 @@ Windows 场景重要约束：若你生成的路径包含 /home/ 或其他 POSIX 
    - 运行黑盒回归：`npm run e2e:stdio:reply-race`。
    - 如需自定义轮数或轮询参数，建议直接运行：`node scripts/e2e/stdio-reply-race-regression.mjs --case all --iterations 2 --max-polls 40`。
    - 该回归会覆盖 `running-interrupt`、`running-cancel`、`waiting-permission-interrupt`、`waiting-permission-cancel` 四类场景。
-   - 若 runtime 自动批准工具调用导致无法观测 `waiting_permission`，脚本会记录 `autoApprovalLikely=true` 并自动回退到 running 态并发竞争验证，不判定为失败。
+   - 若 runtime 自动批准工具调用导致无法观测 `waiting_permission`，脚本会记录 `autoApprovalLikely=true` 并以 `waiting_permission_not_observed` 明确失败，不会改测 running 状态。
 
 ---
 
@@ -457,22 +457,22 @@ Windows 场景重要约束：若你生成的路径包含 /home/ 或其他 POSIX 
 
 ### A.1 适用前提
 
-1. Codex CLI 已接入 `claude-code-mcp` server。
+1. Codex CLI 已接入 `delegate-claude` server。
 2. 当前会话可调用 MCP 工具。
 3. 你只做手动对话式测试，不做脚本化回归。
 
 如果尚未接入，可先执行其一（然后重启 Codex 会话）：
 
 ```bash
-codex mcp add claude-code -- npx -y @leo000001/claude-code-mcp
+codex mcp add delegate-claude -- npx -y @wisteria30/delegate-claude
 ```
 
 或在 `~/.codex/config.toml` 中加入：
 
 ```toml
-[mcp_servers.claude-code]
+[mcp_servers.delegate-claude]
 command = "npx"
-args = ["-y", "@leo000001/claude-code-mcp"]
+args = ["-y", "@wisteria30/delegate-claude"]
 ```
 
 ### A.2 Codex 可直接使用的提示模板
@@ -482,14 +482,14 @@ args = ["-y", "@leo000001/claude-code-mcp"]
 ```text
 请先通过客户端工具注册表或可调用性确认 claude_code、claude_code_reply、claude_code_check、claude_code_session 四个工具。
 （可选）如果客户端支持 tools/list 协议方法，可调用 tools/list 做二次确认；不支持时跳过。
-然后调用 resources/list，并读取 claude-code-mcp:///server-info、claude-code-mcp:///quickstart、claude-code-mcp:///errors 与 claude-code-mcp:///compat-report。
+然后调用 resources/list，并读取 delegate-claude:///server-info、delegate-claude:///quickstart、delegate-claude:///errors 与 delegate-claude:///compat-report。
 输出关键字段和你的结论。
 ```
 
 #### 模板 2：启动并轮询到终态
 
 ```text
-请调用 claude_code 在当前目录执行一个最小 smoke 任务（创建并读取 mcp_smoke.txt）。
+请调用 claude_code 在当前目录执行最小的基本动作确认任务（创建并读取 mcp_basic_check.txt）。
 调用参数建议包含 strictAllowedTools=true 且 allowedTools 仅保留本轮必需工具。
 随后持续调用 claude_code_check(action=poll) 直到终态。
 每次轮询都要打印 status、nextCursor、actions 数量。

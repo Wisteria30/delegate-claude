@@ -1,6 +1,6 @@
-# Claude Code MCP Server - 设计与接口文档
+# delegate-claude 设计与接口文档
 
-> Last Updated: 2026-02-27
+> Last Updated: 2026-08-01
 >
 > 本文档是项目的“实现级”设计说明，面向维护者和实现者。
 > `AGENTS.md` 是执行手册；本文件是详细原理与契约权威来源。
@@ -45,7 +45,7 @@
 2. `src/resources/register-resources.ts` 的 quickstart / gotchas / compat guidance
 3. 然后才在 README / DESIGN 做人类文档补充
 
-补充：Claude 可执行文件默认解析也属于运行时关键行为。若 schema / resource / README 不一致，以代码实现和启动时诊断为准。
+补充：Claude Code 可执行文件选择也属于运行时关键行为。若 schema / resource / README 不一致，以代码实现为准。
 
 ## 2. 系统概览
 
@@ -129,10 +129,9 @@
 | `advanced.betas`                      | `betas`                      | `build-options.ts`  | SDK                                                                                       |
 | `advanced.additionalDirectories`      | `additionalDirectories`      | `build-options.ts`  | SDK                                                                                       |
 | `advanced.outputFormat`               | `outputFormat`               | `build-options.ts`  | SDK                                                                                       |
-| `advanced.pathToClaudeCodeExecutable` | `pathToClaudeCodeExecutable` | `build-options.ts`  | request override > env path > env command > auto `claude`/`claude-internal` > SDK-bundled |
+| `advanced.pathToClaudeCodeExecutable` | `pathToClaudeCodeExecutable` | `build-options.ts`  | 未指定时不设置 Options 字段，由 SDK 使用同梱 executable；指定时在 `query()` 前验证并只传该文件 |
 | `advanced.mcpServers`                 | `mcpServers`                 | `build-options.ts`  | SDK                                                                                       |
 | `advanced.sandbox`                    | `sandbox`                    | `build-options.ts`  | SDK                                                                                       |
-| `advanced.fallbackModel`              | `fallbackModel`              | `build-options.ts`  | SDK                                                                                       |
 | `advanced.enableFileCheckpointing`    | `enableFileCheckpointing`    | `build-options.ts`  | SDK                                                                                       |
 | `advanced.toolConfig`                 | `toolConfig`                 | `build-options.ts`  | SDK                                                                                       |
 | `advanced.includePartialMessages`     | `includePartialMessages`     | `build-options.ts`  | SDK                                                                                       |

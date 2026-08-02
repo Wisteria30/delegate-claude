@@ -1,9 +1,6 @@
 /**
  * claude_code_reply tool - Continue an existing Claude Code session (async)
  */
-import { existsSync, statSync } from "node:fs";
-import os from "node:os";
-import path from "node:path";
 import type { SessionManager } from "../session/manager.js";
 import type {
   AgentDefinition,
@@ -29,11 +26,12 @@ import {
   isValidResumeToken,
 } from "../utils/resume-token.js";
 import { raceWithAbort } from "../utils/race-with-abort.js";
-import { buildOptions } from "../utils/build-options.js";
+import { buildOptions, normalizeOptionSourcePaths } from "../utils/build-options.js";
 import type { OptionSource } from "../utils/build-options.js";
-import { toSessionCreateParams } from "../utils/session-create.js";
-import { normalizeWindowsPathLike } from "../utils/normalize-windows-path.js";
-import { getDefaultClaudeExecutablePath } from "../utils/claude-executable.js";
+import { toSessionCreateParams } from "../session/create-params.js";
+import { resolveExplicitClaudeExecutable } from "../utils/claude-executable.js";
+import { normalizeAndAssertWorkingDirectory } from "../utils/working-directory.js";
+import { toToolErrorText } from "../utils/tool-error.js";
 
 /** Disk resume fallback configuration — only used when the in-memory session is missing. */
 export interface DiskResumeConfig {
@@ -58,7 +56,6 @@ export interface DiskResumeConfig {
   pathToClaudeCodeExecutable?: string;
   mcpServers?: Record<string, McpServerConfig>;
   sandbox?: SandboxSettings;
-  fallbackModel?: string;
   enableFileCheckpointing?: boolean;
   toolConfig?: ToolConfig;
   includePartialMessages?: boolean;
@@ -96,42 +93,6 @@ export type ClaudeCodeReplyStartResult =
   | SessionStartResult
   | { sessionId: string; status: "error"; error: string };
 
-function normalizeAndAssertCwd(cwd: string, contextLabel: string): string {
-  const normalizedCwd = normalizeWindowsPathLike(cwd);
-  const resolvedCwd = resolvePortableTmpAlias(normalizedCwd);
-  if (!existsSync(resolvedCwd)) {
-    throw new Error(
-      `Error [${ErrorCode.INVALID_ARGUMENT}]: ${contextLabel} path does not exist: ${resolvedCwd}`
-    );
-  }
-  try {
-    const stat = statSync(resolvedCwd);
-    if (!stat.isDirectory()) {
-      throw new Error(
-        `Error [${ErrorCode.INVALID_ARGUMENT}]: ${contextLabel} must be a directory: ${resolvedCwd}`
-      );
-    }
-  } catch (err: unknown) {
-    if (err instanceof Error && err.message.includes("Error [")) throw err;
-    const detail = err instanceof Error ? ` (${err.message})` : "";
-    throw new Error(
-      `Error [${ErrorCode.INVALID_ARGUMENT}]: ${contextLabel} is not accessible: ${resolvedCwd}${detail}`
-    );
-  }
-  return resolvedCwd;
-}
-
-function resolvePortableTmpAlias(cwd: string): string {
-  if (process.platform !== "win32") return cwd;
-
-  const normalized = cwd.replace(/\\/g, "/");
-  if (normalized === "/tmp") return os.tmpdir();
-  if (normalized.startsWith("/tmp/")) {
-    return path.join(os.tmpdir(), normalized.slice("/tmp/".length));
-  }
-  return cwd;
-}
-
 function toStartError(
   sessionId: string,
   err: unknown
@@ -146,10 +107,7 @@ function toStartError(
   };
   errorText: string;
 } {
-  const message = err instanceof Error ? err.message : String(err);
-  const errorText = message.includes("Error [")
-    ? message
-    : `Error [${ErrorCode.INTERNAL}]: ${message}`;
+  const errorText = toToolErrorText(err);
   return {
     agentResult: {
       sessionId,
@@ -163,19 +121,30 @@ function toStartError(
   };
 }
 
-function buildOptionsFromDiskResume(dr: DiskResumeConfig): ReturnType<typeof buildOptions> {
+function buildDiskResumeSource(
+  dr: DiskResumeConfig,
+  overrides: Pick<ClaudeCodeReplyInput, "effort" | "thinking">
+): OptionSource {
   if (dr.cwd === undefined || typeof dr.cwd !== "string" || dr.cwd.trim() === "") {
     throw new Error(`Error [${ErrorCode.INVALID_ARGUMENT}]: cwd must be provided for disk resume.`);
   }
-  const normalizedCwd = normalizeAndAssertCwd(dr.cwd, "disk resume cwd");
-  const options = buildOptions({
-    ...dr,
+  const normalizedCwd = normalizeAndAssertWorkingDirectory(dr.cwd, "disk resume cwd", "resolve");
+  const pathToClaudeCodeExecutable =
+    dr.pathToClaudeCodeExecutable !== undefined
+      ? resolveExplicitClaudeExecutable(dr.pathToClaudeCodeExecutable, normalizedCwd)
+      : undefined;
+  // Drop the resume secret so it never reaches the session record or the SDK options.
+  const { resumeToken: _resumeToken, ...source } = dr;
+  void _resumeToken;
+  const normalizedSource: OptionSource = {
+    ...source,
+    ...normalizeOptionSourcePaths(source),
     cwd: normalizedCwd,
-  } as Parameters<typeof buildOptions>[0]);
-  if (options.pathToClaudeCodeExecutable === undefined) {
-    options.pathToClaudeCodeExecutable = getDefaultClaudeExecutablePath();
-  }
-  return options;
+    pathToClaudeCodeExecutable,
+  };
+  if (overrides.effort !== undefined) normalizedSource.effort = overrides.effort;
+  if (overrides.thinking !== undefined) normalizedSource.thinking = overrides.thinking;
+  return normalizedSource;
 }
 
 export async function executeClaudeCodeReply(
@@ -234,25 +203,8 @@ export async function executeClaudeCodeReply(
 
     try {
       const abortController = new AbortController();
-      const options = buildOptionsFromDiskResume(dr);
-      if (input.effort !== undefined) options.effort = input.effort;
-      if (input.thinking !== undefined) options.thinking = input.thinking;
-
-      const { resumeToken: _resumeToken, ...rest } = dr;
-      void _resumeToken;
-      const source: OptionSource = {
-        ...(rest as OptionSource),
-        cwd: options.cwd ?? dr.cwd ?? "",
-        additionalDirectories:
-          (options.additionalDirectories as string[] | undefined) ??
-          (rest as OptionSource).additionalDirectories,
-        debugFile: (options.debugFile as string | undefined) ?? (rest as OptionSource).debugFile,
-        pathToClaudeCodeExecutable:
-          (options.pathToClaudeCodeExecutable as string | undefined) ??
-          (rest as OptionSource).pathToClaudeCodeExecutable,
-        effort: input.effort ?? (rest as OptionSource).effort,
-        thinking: input.thinking ?? (rest as OptionSource).thinking,
-      };
+      const source = buildDiskResumeSource(dr, input);
+      const options = buildOptions(source);
       sessionManager.create(
         toSessionCreateParams({
           sessionId: input.sessionId,
@@ -348,6 +300,22 @@ export async function executeClaudeCodeReply(
     };
   }
 
+  let normalizedCwd: string;
+  let explicitClaudeExecutable: string | undefined;
+  try {
+    normalizedCwd = normalizeAndAssertWorkingDirectory(existing.cwd, "session cwd", "resolve");
+    explicitClaudeExecutable =
+      existing.pathToClaudeCodeExecutable !== undefined
+        ? resolveExplicitClaudeExecutable(existing.pathToClaudeCodeExecutable, normalizedCwd)
+        : undefined;
+  } catch (err: unknown) {
+    return {
+      sessionId: input.sessionId,
+      status: "error",
+      error: toToolErrorText(err),
+    };
+  }
+
   const originalStatus = existing.status;
   const abortController = new AbortController();
   const acquired = sessionManager.tryAcquire(input.sessionId, originalStatus, abortController);
@@ -363,14 +331,11 @@ export async function executeClaudeCodeReply(
   }
 
   const session = acquired;
-  const normalizedCwd = normalizeAndAssertCwd(session.cwd, "session cwd");
-  const options = buildOptions(session);
-  options.cwd = normalizedCwd;
-  const resolvedDefaultExecutable =
-    options.pathToClaudeCodeExecutable ?? getDefaultClaudeExecutablePath();
-  if (resolvedDefaultExecutable !== undefined) {
-    options.pathToClaudeCodeExecutable = resolvedDefaultExecutable;
-  }
+  const options = buildOptions({
+    ...session,
+    cwd: normalizedCwd,
+    pathToClaudeCodeExecutable: explicitClaudeExecutable,
+  });
   if (input.forkSession) options.forkSession = true;
 
   if (input.forkSession && !sessionManager.hasCapacityFor(1)) {
@@ -386,14 +351,8 @@ export async function executeClaudeCodeReply(
     {
       effort: input.effort ?? session.effort,
       thinking: input.thinking ?? session.thinking,
-      pathToClaudeCodeExecutable:
-        session.pathToClaudeCodeExecutable ?? resolvedDefaultExecutable ?? undefined,
+      pathToClaudeCodeExecutable: explicitClaudeExecutable,
     };
-  if (session.pathToClaudeCodeExecutable === undefined && resolvedDefaultExecutable !== undefined) {
-    sessionManager.update(input.sessionId, {
-      pathToClaudeCodeExecutable: resolvedDefaultExecutable,
-    });
-  }
   if (input.effort !== undefined) options.effort = input.effort;
   if (input.thinking !== undefined) options.thinking = input.thinking;
   if (!input.forkSession && (input.effort !== undefined || input.thinking !== undefined)) {
@@ -417,7 +376,9 @@ export async function executeClaudeCodeReply(
       toolCache,
       onInit: (init) => {
         if (!input.forkSession) return;
-        if (init.session_id === input.sessionId) return;
+        if (init.session_id === input.sessionId) {
+          throw new Error("Fork requested but no new session ID received from agent.");
+        }
 
         // Restore original session state as soon as we have the fork's session ID.
         // Forking should not affect the original session (including its AbortController).
@@ -455,13 +416,6 @@ export async function executeClaudeCodeReply(
           abortController.abort()
         )
       : input.sessionId;
-    if (input.forkSession && sessionId === input.sessionId) {
-      return {
-        sessionId: input.sessionId,
-        status: "error",
-        error: `Error [${ErrorCode.INTERNAL}]: Fork requested but no new session ID received from agent.`,
-      };
-    }
 
     const resumeSecret = getResumeSecret();
     return {

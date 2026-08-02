@@ -1,16 +1,13 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { SessionManager } from "../src/session/manager.js";
-import { ToolDiscoveryCache } from "../src/tools/tool-discovery.js";
 import { executeClaudeCodeCheck } from "../src/tools/claude-code-check.js";
 import type { CheckResult, PermissionRequestRecord, PermissionUpdate } from "../src/types.js";
 
 describe("executeClaudeCodeCheck", () => {
   let manager: SessionManager;
-  let toolCache: ToolDiscoveryCache;
 
   beforeEach(() => {
     manager = new SessionManager();
-    toolCache = new ToolDiscoveryCache();
   });
 
   afterEach(() => {
@@ -19,7 +16,7 @@ describe("executeClaudeCodeCheck", () => {
   });
 
   it("should return SESSION_NOT_FOUND for missing session", () => {
-    const res = executeClaudeCodeCheck({ action: "poll", sessionId: "nope" }, manager, toolCache);
+    const res = executeClaudeCodeCheck({ action: "poll", sessionId: "nope" }, manager);
     expect("isError" in res && res.isError).toBe(true);
     expect((res as { error: string }).error).toContain("SESSION_NOT_FOUND");
   });
@@ -30,8 +27,7 @@ describe("executeClaudeCodeCheck", () => {
 
     const res = executeClaudeCodeCheck(
       { action: "poll", sessionId: "s1", pollOptions: { includeTools: true } },
-      manager,
-      toolCache
+      manager
     );
 
     expect("isError" in res).toBe(false);
@@ -45,8 +41,7 @@ describe("executeClaudeCodeCheck", () => {
 
     const res = executeClaudeCodeCheck(
       { action: "poll", sessionId: "s1", pollOptions: { includeTools: true } },
-      manager,
-      toolCache
+      manager
     ) as CheckResult;
 
     expect(res.availableTools?.map((t) => t.name)).toEqual(["Read"]);
@@ -70,7 +65,7 @@ describe("executeClaudeCodeCheck", () => {
       60_000
     );
 
-    const polled = executeClaudeCodeCheck({ action: "poll", sessionId: "s1" }, manager, toolCache);
+    const polled = executeClaudeCodeCheck({ action: "poll", sessionId: "s1" }, manager);
     expect("isError" in polled).toBe(false);
     expect((polled as { status: string }).status).toBe("waiting_permission");
     expect((polled as { actions?: unknown[] }).actions?.length).toBe(1);
@@ -91,8 +86,7 @@ describe("executeClaudeCodeCheck", () => {
           updatedPermissions: [{ scope: "test" }],
         },
       },
-      manager,
-      toolCache
+      manager
     );
     expect("isError" in responded).toBe(false);
     expect(finish).toHaveBeenCalledTimes(1);
@@ -129,8 +123,7 @@ describe("executeClaudeCodeCheck", () => {
         denyMessage: "nope",
         interrupt: true,
       },
-      manager,
-      toolCache
+      manager
     );
 
     expect("isError" in responded).toBe(false);
@@ -161,8 +154,7 @@ describe("executeClaudeCodeCheck", () => {
 
     const minimal = executeClaudeCodeCheck(
       { action: "poll", sessionId: "s1", cursor: 0 },
-      manager,
-      toolCache
+      manager
     ) as CheckResult;
     expect("isError" in minimal).toBe(false);
     expect(minimal.events).toHaveLength(0);
@@ -176,8 +168,7 @@ describe("executeClaudeCodeCheck", () => {
         cursor: 0,
         pollOptions: { includeProgressEvents: true },
       },
-      manager,
-      toolCache
+      manager
     ) as CheckResult;
     expect(fullProgress.nextCursor).toBe(1);
     expect(fullProgress.events).toHaveLength(1);
@@ -204,8 +195,7 @@ describe("executeClaudeCodeCheck", () => {
 
     const polled = executeClaudeCodeCheck(
       { action: "poll", sessionId: "s1" },
-      manager,
-      toolCache
+      manager
     ) as CheckResult;
     expect(polled.actions?.[0]).toMatchObject({
       requestId: "r-meta",
@@ -245,8 +235,7 @@ describe("executeClaudeCodeCheck", () => {
           updatedPermissions: [{ scope: "existing" }],
         },
       },
-      manager,
-      toolCache
+      manager
     );
 
     expect("isError" in responded).toBe(false);
@@ -299,8 +288,7 @@ describe("executeClaudeCodeCheck", () => {
           updatedPermissions: [{ type: "setMode", mode: "default", destination: "session" }],
         },
       },
-      manager,
-      toolCache
+      manager
     );
 
     expect("isError" in responded).toBe(false);
@@ -343,8 +331,7 @@ describe("executeClaudeCodeCheck", () => {
         requestId: "r-disallowed",
         decision: "allow_for_session",
       },
-      manager,
-      toolCache
+      manager
     );
 
     expect("isError" in responded).toBe(false);
@@ -359,8 +346,7 @@ describe("executeClaudeCodeCheck", () => {
 
     const res = executeClaudeCodeCheck(
       { action: "respond_permission", sessionId: "s1", requestId: "nope", decision: "allow" },
-      manager,
-      toolCache
+      manager
     );
     expect("isError" in res && res.isError).toBe(true);
     expect((res as { error: string }).error).toContain("PERMISSION_REQUEST_NOT_FOUND");
@@ -386,8 +372,7 @@ describe("executeClaudeCodeCheck", () => {
     manager.setPendingPermission("s1", record, vi.fn(), 60_000);
     const polled = executeClaudeCodeCheck(
       { action: "poll", sessionId: "s1" },
-      manager,
-      toolCache
+      manager
     ) as CheckResult;
 
     expect(polled.actions).toHaveLength(1);
@@ -445,16 +430,14 @@ describe("executeClaudeCodeCheck", () => {
 
     const initial = executeClaudeCodeCheck(
       { action: "poll", sessionId: "s1" },
-      manager,
-      toolCache
+      manager
     ) as CheckResult;
     expect(initial.status).toBe("waiting_permission");
     expect(initial.actions?.map((a) => a.requestId)).toEqual(["r1", "r2"]);
 
     const responded = executeClaudeCodeCheck(
       { action: "respond_permission", sessionId: "s1", requestId: "r1", decision: "allow" },
-      manager,
-      toolCache
+      manager
     ) as CheckResult;
     expect(responded.status).toBe("waiting_permission");
     expect(responded.actions?.map((a) => a.requestId)).toEqual(["r2"]);
@@ -485,8 +468,7 @@ describe("executeClaudeCodeCheck", () => {
 
     const polled = executeClaudeCodeCheck(
       { action: "poll", sessionId: "s1" },
-      manager,
-      toolCache
+      manager
     ) as CheckResult;
     expect(polled.status).toBe("running");
     expect(polled.actions).toBeUndefined();
@@ -516,8 +498,7 @@ describe("executeClaudeCodeCheck", () => {
 
     const polled = executeClaudeCodeCheck(
       { action: "poll", sessionId: "s1" },
-      manager,
-      toolCache
+      manager
     ) as CheckResult;
     expect(polled.status).toBe("cancelled");
     expect(polled.actions).toBeUndefined();
@@ -558,8 +539,7 @@ describe("executeClaudeCodeCheck", () => {
 
     const polled = executeClaudeCodeCheck(
       { action: "poll", sessionId: "s1" },
-      manager,
-      toolCache
+      manager
     ) as CheckResult;
 
     expect(polled.status).toBe("idle");
@@ -600,8 +580,7 @@ describe("executeClaudeCodeCheck", () => {
 
     const polled = executeClaudeCodeCheck(
       { action: "poll", sessionId: "s1", responseMode: "full" },
-      manager,
-      toolCache
+      manager
     ) as CheckResult;
 
     expect((polled.result as { usage?: unknown }).usage).toEqual({ input_tokens: 1 });
@@ -636,8 +615,7 @@ describe("executeClaudeCodeCheck", () => {
 
     const polled = executeClaudeCodeCheck(
       { action: "poll", sessionId: "s-compact", responseMode: "delta_compact" },
-      manager,
-      toolCache
+      manager
     ) as CheckResult;
 
     expect(polled.events).toEqual([]);
@@ -660,8 +638,7 @@ describe("executeClaudeCodeCheck", () => {
         responseMode: "delta_compact",
         pollOptions: { includeEvents: true },
       },
-      manager,
-      toolCache
+      manager
     ) as CheckResult;
 
     expect(polled.events).toHaveLength(1);
@@ -680,8 +657,7 @@ describe("executeClaudeCodeCheck", () => {
 
     const first = executeClaudeCodeCheck(
       { action: "poll", sessionId: "s1", maxEvents: 2 },
-      manager,
-      toolCache
+      manager
     ) as CheckResult;
     expect(first.truncated).toBe(true);
     expect(first.truncatedFields).toEqual(["events"]);
@@ -690,8 +666,7 @@ describe("executeClaudeCodeCheck", () => {
 
     const second = executeClaudeCodeCheck(
       { action: "poll", sessionId: "s1", cursor: first.nextCursor as number },
-      manager,
-      toolCache
+      manager
     ) as CheckResult;
     expect(second.events.length).toBeGreaterThan(0);
     expect(second.events.some((e) => (e.data as { idx?: number }).idx === 0)).toBe(false);
@@ -703,16 +678,14 @@ describe("executeClaudeCodeCheck", () => {
 
     const first = executeClaudeCodeCheck(
       { action: "poll", sessionId: "s-empty", cursor: 0 },
-      manager,
-      toolCache
+      manager
     ) as CheckResult;
     expect(first.events).toHaveLength(0);
     expect(first.nextCursor).toBe(0);
 
     const second = executeClaudeCodeCheck(
       { action: "poll", sessionId: "s-empty", cursor: first.nextCursor },
-      manager,
-      toolCache
+      manager
     ) as CheckResult;
     expect(second.events).toHaveLength(0);
     expect(second.nextCursor).toBe(first.nextCursor);
@@ -730,8 +703,7 @@ describe("executeClaudeCodeCheck", () => {
 
     const polled = executeClaudeCodeCheck(
       { action: "poll", sessionId: "s-tool-validate" },
-      manager,
-      toolCache
+      manager
     ) as CheckResult;
 
     expect(polled.toolValidation).toEqual({
@@ -757,8 +729,7 @@ describe("executeClaudeCodeCheck", () => {
 
     const polled = executeClaudeCodeCheck(
       { action: "poll", sessionId: "s-tool-unknown" },
-      manager,
-      toolCache
+      manager
     ) as CheckResult;
 
     expect(polled.toolValidation).toEqual({
@@ -783,8 +754,7 @@ describe("executeClaudeCodeCheck", () => {
 
     const polled = executeClaudeCodeCheck(
       { action: "poll", sessionId: "s-tool-preapprove" },
-      manager,
-      toolCache
+      manager
     ) as CheckResult;
 
     expect(polled.compatWarnings).toContain(
@@ -814,8 +784,7 @@ describe("executeClaudeCodeCheck", () => {
 
       const polled = executeClaudeCodeCheck(
         { action: "poll", sessionId: "s-win-path" },
-        manager,
-        toolCache
+        manager
       ) as CheckResult;
 
       expect(
@@ -855,8 +824,7 @@ describe("executeClaudeCodeCheck", () => {
 
       const polled = executeClaudeCodeCheck(
         { action: "poll", sessionId: "s-win-msys" },
-        manager,
-        toolCache
+        manager
       ) as CheckResult;
 
       expect(
@@ -883,8 +851,7 @@ describe("executeClaudeCodeCheck", () => {
 
     const polled = executeClaudeCodeCheck(
       { action: "poll", sessionId: "s-max-bytes", pollOptions: { maxBytes: 220 } },
-      manager,
-      toolCache
+      manager
     ) as CheckResult;
 
     expect(polled.truncated).toBe(true);
@@ -900,8 +867,7 @@ describe("executeClaudeCodeCheck", () => {
         cursor: polled.nextCursor,
         pollOptions: { maxBytes: 220 },
       },
-      manager,
-      toolCache
+      manager
     ) as CheckResult;
     // nextCursor should not skip unseen events when maxBytes truncation occurs.
     expect(second.events.length).toBeGreaterThanOrEqual(0);

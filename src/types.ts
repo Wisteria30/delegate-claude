@@ -1,5 +1,5 @@
 /**
- * Type definitions for claude-code-mcp
+ * Type definitions for delegate-claude
  *
  * Shared constants are defined as tuples so both Zod schemas and
  * TypeScript types can derive from the same source of truth.
@@ -112,8 +112,6 @@ export interface SessionInfo {
   mcpServers?: Record<string, McpServerConfig>;
   /** Sandbox configuration for isolating shell command execution */
   sandbox?: SandboxSettings;
-  /** Fallback model if the primary model fails or is unavailable */
-  fallbackModel?: string;
   /** Enable file checkpointing to track file changes */
   enableFileCheckpointing?: boolean;
   /** Per-tool configuration for built-in tools */
@@ -170,7 +168,6 @@ export interface PublicSessionInfo {
   thinking?: ThinkingConfig;
   persistSession?: boolean;
   agent?: string;
-  fallbackModel?: string;
   enableFileCheckpointing?: boolean;
   includePartialMessages?: boolean;
   promptSuggestions?: boolean;

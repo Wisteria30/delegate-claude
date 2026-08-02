@@ -1,22 +1,19 @@
 import { ResourceTemplate, type McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { ReadResourceResult } from "@modelcontextprotocol/sdk/types.js";
 import { createHash } from "node:crypto";
-import { basename } from "node:path";
 import type { SessionManager } from "../session/manager.js";
+import { buildSessionSnapshot } from "../session/snapshot.js";
 import {
   ErrorCode,
   DEFAULT_POLL_INTERVAL_RUNNING_MS,
   DEFAULT_POLL_INTERVAL_WAITING_MS,
-  type PublicSessionInfo,
 } from "../types.js";
 import {
   defaultCatalogTools,
   discoverToolsFromInit,
   type ToolDiscoveryCache,
 } from "../tools/tool-discovery.js";
-import { resolveDefaultClaudeExecutable } from "../utils/claude-executable.js";
-
-const RESOURCE_SCHEME = "claude-code-mcp";
+const RESOURCE_SCHEME = "delegate-claude";
 
 export const RESOURCE_URIS = {
   serverInfo: `${RESOURCE_SCHEME}:///server-info`,
@@ -74,27 +71,6 @@ function extractSingleVariable(value: string | string[] | null | undefined): str
   if (Array.isArray(value) && typeof value[0] === "string" && value[0].trim() !== "")
     return value[0];
   return undefined;
-}
-
-function buildSessionRedactions(includeSensitive: boolean): PublicSessionInfo["redactions"] {
-  const redactions: PublicSessionInfo["redactions"] = [
-    { field: "env", reason: "secret_or_internal" },
-    { field: "mcpServers", reason: "secret_or_internal" },
-    { field: "sandbox", reason: "secret_or_internal" },
-    { field: "settings", reason: "secret_or_internal" },
-    { field: "debugFile", reason: "secret_or_internal" },
-    { field: "pathToClaudeCodeExecutable", reason: "secret_or_internal" },
-  ];
-  if (!includeSensitive) {
-    redactions.push(
-      { field: "cwd", reason: "sensitive_by_default" },
-      { field: "systemPrompt", reason: "sensitive_by_default" },
-      { field: "agents", reason: "sensitive_by_default" },
-      { field: "additionalDirectories", reason: "sensitive_by_default" },
-      { field: "toolConfig", reason: "sensitive_by_default" }
-    );
-  }
-  return redactions;
 }
 
 function buildGotchasEntries(): GotchaEntry[] {
@@ -202,7 +178,7 @@ export function registerResources(
   deps: { toolCache: ToolDiscoveryCache; version: string; sessionManager: SessionManager }
 ): void {
   const startedAt = new Date().toISOString();
-  const resourceSchemaVersion = "1.4";
+  const resourceSchemaVersion = "1.5";
   const mcpProtocolVersion = "2025-03-26";
   const gotchasEntries = buildGotchasEntries();
   const catalogToolNames = new Set(defaultCatalogTools().map((tool) => tool.name));
@@ -223,7 +199,7 @@ export function registerResources(
         serverInfoUri,
         (() => {
           const base: Record<string, unknown> = {
-            name: "claude-code-mcp",
+            name: "delegate-claude",
             version: deps.version,
             node: process.version,
             platform: process.platform,
@@ -305,7 +281,7 @@ export function registerResources(
       asTextResource(
         gotchasUri,
         [
-          "# claude-code-mcp: gotchas",
+          "# delegate-claude: gotchas",
           "",
           "Check these before assuming the session is broken.",
           "",
@@ -340,7 +316,7 @@ export function registerResources(
       asTextResource(
         quickstartUri,
         [
-          "# claude-code-mcp quickstart",
+          "# delegate-claude quickstart",
           "",
           "## Required state",
           "",
@@ -443,7 +419,6 @@ export function registerResources(
         typeof process.env.CLAUDE_CODE_MCP_RESUME_SECRET === "string" &&
         process.env.CLAUDE_CODE_MCP_RESUME_SECRET.trim() !== "";
       const runtimeToolStats = deps.sessionManager.getRuntimeToolStats();
-      const defaultClaudeExecutable = resolveDefaultClaudeExecutable();
       const toolCatalogCount = deps.toolCache.getTools().length;
       const detectedMismatches: string[] = [];
       if (
@@ -475,13 +450,9 @@ export function registerResources(
           enabled: diskResumeEnabled,
           resumeSecretConfigured,
         },
-        defaultClaudeExecutable: {
-          source: defaultClaudeExecutable.source,
-          command: defaultClaudeExecutable.command,
-          resolvedFileName: defaultClaudeExecutable.resolvedPath
-            ? basename(defaultClaudeExecutable.resolvedPath)
-            : undefined,
-          usingBundled: defaultClaudeExecutable.resolvedPath === undefined,
+        claudeCodeExecutable: {
+          defaultSource: "sdk_bundled",
+          explicitPathValidation: "before_query",
         },
         features: {
           resources: true,
@@ -513,7 +484,7 @@ export function registerResources(
           "Treat tool descriptions and MCP resources as agent-visible guidance; do not assume README-level documentation is visible to the model.",
           "Use allowedTools/disallowedTools only with exact runtime tool names.",
           "Set strictAllowedTools=true when you need allowedTools to behave as a strict allowlist.",
-          "Default Claude executable selection prefers request path, then CLAUDE_CODE_MCP_DEFAULT_CLAUDE_PATH, then CLAUDE_CODE_MCP_DEFAULT_CLAUDE_COMMAND, then auto-detected 'claude'/'claude-internal', then SDK-bundled.",
+          "Claude Code uses the SDK-bundled executable by default. When pathToClaudeCodeExecutable is provided, the server validates and uses only that file.",
           "This server assumes MCP client and server run on the same machine/platform.",
           "Prefer responseMode='delta_compact' to reduce per-poll payload size. Running sessions should still poll at >=2 minute intervals.",
           "respond_user_input is not supported on this backend; use poll/respond_permission flow.",
@@ -577,22 +548,14 @@ export function registerResources(
                   message: `Session '${sessionId}' not found.`,
                 };
               }
-              const base = deps.sessionManager.toPublicJSON(session);
-              const stored = deps.sessionManager.getResult(sessionId);
               return {
                 sessionId,
                 found: true,
-                session: {
-                  ...base,
-                  pendingPermissionCount: deps.sessionManager.getPendingPermissionCount(sessionId),
-                  eventCount: deps.sessionManager.getEventCount(sessionId),
-                  currentCursor: deps.sessionManager.getCurrentCursor(sessionId),
-                  lastEventId: deps.sessionManager.getLastEventId(sessionId),
-                  ttlMs: deps.sessionManager.getRemainingTtlMs(sessionId),
-                  lastError: stored?.type === "error" ? stored.result.result : undefined,
-                  lastErrorAt: stored?.type === "error" ? stored.createdAt : undefined,
-                  redactions: buildSessionRedactions(false),
-                },
+                session: buildSessionSnapshot({
+                  sessionManager: deps.sessionManager,
+                  session,
+                  includeSensitive: false,
+                }),
               };
             })();
 

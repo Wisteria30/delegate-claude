@@ -1,7 +1,6 @@
 /**
  * claude_code tool - Start a new Claude Code agent session
  */
-import { existsSync, statSync } from "node:fs";
 import type { SessionManager } from "../session/manager.js";
 import type {
   AgentDefinition,
@@ -19,13 +18,12 @@ import { consumeQuery } from "./query-consumer.js";
 import type { ToolDiscoveryCache } from "./tool-discovery.js";
 import { computeResumeToken, getResumeSecret } from "../utils/resume-token.js";
 import { raceWithAbort } from "../utils/race-with-abort.js";
-import { buildOptions } from "../utils/build-options.js";
-import { toSessionCreateParams } from "../utils/session-create.js";
-import {
-  normalizeWindowsPathArray,
-  normalizeWindowsPathLike,
-} from "../utils/normalize-windows-path.js";
-import { getDefaultClaudeExecutablePath } from "../utils/claude-executable.js";
+import { buildOptions, normalizeOptionSourcePaths } from "../utils/build-options.js";
+import { toSessionCreateParams } from "../session/create-params.js";
+import { normalizeWindowsPathLike } from "../utils/normalize-windows-path.js";
+import { resolveExplicitClaudeExecutable } from "../utils/claude-executable.js";
+import { normalizeAndAssertWorkingDirectory } from "../utils/working-directory.js";
+import { toToolErrorText } from "../utils/tool-error.js";
 
 /**
  * Low-frequency / SDK-passthrough options grouped under `advanced`.
@@ -43,7 +41,6 @@ export interface ClaudeCodeAdvancedOptions {
   pathToClaudeCodeExecutable?: string;
   mcpServers?: Record<string, McpServerConfig>;
   sandbox?: SandboxSettings;
-  fallbackModel?: string;
   enableFileCheckpointing?: boolean;
   toolConfig?: ToolConfig;
   includePartialMessages?: boolean;
@@ -96,31 +93,22 @@ export async function executeClaudeCode(
       error: `Error [${ErrorCode.INVALID_ARGUMENT}]: cwd must be a non-empty string.`,
     };
   }
-  const normalizedCwd = normalizeWindowsPathLike(cwd);
-  if (cwdProvided && !existsSync(normalizedCwd)) {
-    return {
-      sessionId: "",
-      status: "error",
-      error: `Error [${ErrorCode.INVALID_ARGUMENT}]: cwd path does not exist: ${normalizedCwd}`,
-    };
-  }
+  let normalizedCwd: string;
   if (cwdProvided) {
     try {
-      if (!statSync(normalizedCwd).isDirectory()) {
-        return {
-          sessionId: "",
-          status: "error",
-          error: `Error [${ErrorCode.INVALID_ARGUMENT}]: cwd must be a directory: ${normalizedCwd}`,
-        };
-      }
+      normalizedCwd = normalizeAndAssertWorkingDirectory(cwd, "cwd", "preserve");
     } catch (err: unknown) {
-      const detail = err instanceof Error ? ` (${err.message})` : "";
+      // Intentional: only Errors become a tool-level cwd failure. A non-Error throw is not a cwd
+      // verdict, so it keeps escaping to the server boundary, which classifies it as INTERNAL.
+      if (!(err instanceof Error)) throw err;
       return {
         sessionId: "",
         status: "error",
-        error: `Error [${ErrorCode.INVALID_ARGUMENT}]: cwd is not accessible: ${normalizedCwd}${detail}`,
+        error: toToolErrorText(err),
       };
     }
+  } else {
+    normalizedCwd = normalizeWindowsPathLike(cwd);
   }
 
   if (!sessionManager.hasCapacityFor(1)) {
@@ -150,21 +138,16 @@ export async function executeClaudeCode(
     effort: input.effort,
     thinking: input.thinking,
   };
-  const normalizedFlat = {
-    ...flat,
-    cwd: normalizeWindowsPathLike(flat.cwd),
-    additionalDirectories:
-      flat.additionalDirectories !== undefined
-        ? normalizeWindowsPathArray(flat.additionalDirectories)
-        : undefined,
-    debugFile: flat.debugFile !== undefined ? normalizeWindowsPathLike(flat.debugFile) : undefined,
-    pathToClaudeCodeExecutable:
-      flat.pathToClaudeCodeExecutable !== undefined
-        ? normalizeWindowsPathLike(flat.pathToClaudeCodeExecutable)
-        : getDefaultClaudeExecutablePath(),
-  };
-
   try {
+    const normalizedFlat = {
+      ...flat,
+      ...normalizeOptionSourcePaths(flat),
+      pathToClaudeCodeExecutable:
+        flat.pathToClaudeCodeExecutable !== undefined
+          ? resolveExplicitClaudeExecutable(flat.pathToClaudeCodeExecutable, normalizedCwd)
+          : undefined,
+    };
+
     const handle = consumeQuery({
       mode: "start",
       prompt: input.prompt,
@@ -203,11 +186,10 @@ export async function executeClaudeCode(
       resumeToken: resumeSecret ? computeResumeToken(sessionId, resumeSecret) : undefined,
     };
   } catch (err: unknown) {
-    const message = err instanceof Error ? err.message : String(err);
     return {
       sessionId: "",
       status: "error",
-      error: message.includes("Error [") ? message : `Error [${ErrorCode.INTERNAL}]: ${message}`,
+      error: toToolErrorText(err),
     };
   }
 }

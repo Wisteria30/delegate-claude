@@ -189,7 +189,6 @@ export class SessionManager {
     agent?: SessionInfo["agent"];
     mcpServers?: SessionInfo["mcpServers"];
     sandbox?: SessionInfo["sandbox"];
-    fallbackModel?: SessionInfo["fallbackModel"];
     enableFileCheckpointing?: SessionInfo["enableFileCheckpointing"];
     toolConfig?: SessionInfo["toolConfig"];
     includePartialMessages?: SessionInfo["includePartialMessages"];
@@ -242,7 +241,6 @@ export class SessionManager {
       agent: params.agent,
       mcpServers: params.mcpServers,
       sandbox: params.sandbox,
-      fallbackModel: params.fallbackModel,
       enableFileCheckpointing: params.enableFileCheckpointing,
       toolConfig: params.toolConfig,
       includePartialMessages: params.includePartialMessages,
@@ -881,15 +879,6 @@ export class SessionManager {
         this.runtime.delete(id);
       }
     }
-  }
-
-  /**
-   * Serialize session info for external consumption.
-   * Prefer explicit serializers below. This method is kept for backward compatibility
-   * but returns the redacted public shape.
-   */
-  toJSON(info: SessionInfo): PublicSessionInfo {
-    return this.toPublicJSON(info);
   }
 
   /** Serialize session info when includeSensitive=true (still excludes secrets like env) */

@@ -1,14 +1,14 @@
-# claude-code-mcp
+# delegate-claude
 
-[![npm version](https://img.shields.io/npm/v/@leo000001/claude-code-mcp.svg)](https://www.npmjs.com/package/@leo000001/claude-code-mcp)
-[![license](https://img.shields.io/npm/l/@leo000001/claude-code-mcp.svg)](https://github.com/xihuai18/claude-code-mcp/blob/HEAD/LICENSE)
-[![node](https://img.shields.io/node/v/@leo000001/claude-code-mcp.svg)](https://nodejs.org)
+[![npm version](https://img.shields.io/npm/v/@wisteria30/delegate-claude.svg)](https://www.npmjs.com/package/@wisteria30/delegate-claude)
+[![license](https://img.shields.io/npm/l/@wisteria30/delegate-claude.svg)](https://github.com/Wisteria30/delegate-claude/blob/HEAD/LICENSE)
+[![node](https://img.shields.io/node/v/@wisteria30/delegate-claude.svg)](https://nodejs.org)
 
 MCP server that wraps [Claude Code (Claude Agent SDK)](https://docs.anthropic.com/en/docs/claude-code/overview) as tools, enabling any MCP client to invoke Claude Code for autonomous coding tasks. Designed for local use — the MCP server and client are expected to run on the same machine. It works especially well with OpenCode/Codex-style clients that prefer async polling and explicit permission decisions.
 
 Inspired by the [Codex MCP](https://developers.openai.com/codex/guides/agents-sdk/) design philosophy — minimum tools, maximum capability.
 
-This package is **CLI-first**: it is intended to run as an MCP server process (`npx @leo000001/claude-code-mcp`), not as a stable programmatic library API.
+This package is **CLI-first**: it is intended to run as an MCP server process (`npx @wisteria30/delegate-claude`), not as a stable programmatic library API.
 
 ## Visibility Boundary
 
@@ -41,10 +41,10 @@ See `CHANGELOG.md` for release history.
 - **Building from source requires [mise](https://mise.jdx.dev/)** — `mise.toml` installs the repository's exact Node.js and Task versions.
 - **Same-platform deployment** — this MCP server is designed to run on the same machine as the MCP client. It communicates via stdio (child process), reads local Claude configuration files from `~/.claude/`, and accesses the local file system directly. Remote deployment is not supported.
 
-This MCP server uses the [`@anthropic-ai/claude-agent-sdk`](https://www.npmjs.com/package/@anthropic-ai/claude-agent-sdk) package, which **bundles its own Claude Code CLI** (`cli.js`). When no explicit `pathToClaudeCodeExecutable` is provided, this server now prefers a detected local `claude` command, then `claude-internal`, and falls back to the SDK-bundled CLI if neither is found.
+This MCP server uses the [`@anthropic-ai/claude-agent-sdk`](https://www.npmjs.com/package/@anthropic-ai/claude-agent-sdk) package, which bundles Claude Code. When `pathToClaudeCodeExecutable` is omitted, the server leaves the SDK option unset so SDK 0.3.220 selects its bundled executable.
 
 - The SDK bundles a Claude Code CLI; its version generally tracks the SDK package version, but the exact scheme is not guaranteed
-- Default executable resolution order is: request-level `pathToClaudeCodeExecutable` -> `CLAUDE_CODE_MCP_DEFAULT_CLAUDE_PATH` -> `CLAUDE_CODE_MCP_DEFAULT_CLAUDE_COMMAND` -> auto-detected `claude` -> auto-detected `claude-internal` -> SDK-bundled CLI
+- When `pathToClaudeCodeExecutable` is provided, the server validates that file before calling the SDK and uses only that file
 - **Configuration is shared** — the bundled CLI reads API keys and settings from `~/.claude/`, same as the system-installed `claude`
 - **All local settings are loaded by default** — unlike the raw SDK (which defaults to isolation mode), this MCP server loads `user`, `project`, and `local` settings automatically, including `CLAUDE.md` project context. Pass `advanced.settingSources: []` to opt out
 - You must have Claude Code configured (API key set up) before using this MCP server: see [Claude Code documentation](https://docs.anthropic.com/en/docs/claude-code/overview)
@@ -58,7 +58,7 @@ This MCP server uses the [`@anthropic-ai/claude-agent-sdk`](https://www.npmjs.co
 Install globally or use `npx` (no install needed):
 
 ```bash
-npm install -g @leo000001/claude-code-mcp
+npm install -g @wisteria30/delegate-claude
 ```
 
 Add to your MCP client configuration (Claude Desktop, Cursor, etc.):
@@ -66,9 +66,9 @@ Add to your MCP client configuration (Claude Desktop, Cursor, etc.):
 ```json
 {
   "mcpServers": {
-    "claude-code": {
+    "delegate-claude": {
       "command": "npx",
-      "args": ["-y", "@leo000001/claude-code-mcp"]
+      "args": ["-y", "@wisteria30/delegate-claude"]
     }
   }
 }
@@ -79,7 +79,7 @@ Add to your MCP client configuration (Claude Desktop, Cursor, etc.):
 ### Anthropic Claude Code CLI (as an MCP client)
 
 ```bash
-claude mcp add --transport stdio claude-code -- npx -y @leo000001/claude-code-mcp
+claude mcp add --transport stdio delegate-claude -- npx -y @wisteria30/delegate-claude
 ```
 
 ### OpenCode
@@ -89,9 +89,9 @@ Add a local MCP entry in `opencode.json` / `opencode.jsonc` (project) or the glo
 ```json
 {
   "mcp": {
-    "claude-code": {
+    "delegate-claude": {
       "type": "local",
-      "command": ["npx", "-y", "@leo000001/claude-code-mcp"],
+      "command": ["npx", "-y", "@wisteria30/delegate-claude"],
       "enabled": true
     }
   }
@@ -105,15 +105,15 @@ OpenCode tip: start with `claude_code`, keep the returned `sessionId`, then back
 ### OpenAI Codex CLI
 
 ```bash
-codex mcp add claude-code -- npx -y @leo000001/claude-code-mcp
+codex mcp add delegate-claude -- npx -y @wisteria30/delegate-claude
 ```
 
 Or manually add to `~/.codex/config.toml`:
 
 ```toml
-[mcp_servers.claude-code-mcp]
+[mcp_servers.delegate-claude]
 command = "npx"
-args = ["-y", "@leo000001/claude-code-mcp"]
+args = ["-y", "@wisteria30/delegate-claude"]
 ```
 
 Codex supports both user-level (`~/.codex/config.toml`) and project-level (`.codex/config.toml`) configuration. See [Codex config reference](https://developers.openai.com/codex/config-reference) for advanced options like `tool_timeout_sec` and `enabled_tools`.
@@ -121,8 +121,8 @@ Codex supports both user-level (`~/.codex/config.toml`) and project-level (`.cod
 ### From source
 
 ```bash
-git clone https://github.com/xihuai18/claude-code-mcp.git
-cd claude-code-mcp
+git clone https://github.com/Wisteria30/delegate-claude.git
+cd delegate-claude
 mise install
 mise exec -- task install
 mise exec -- task build
@@ -153,7 +153,7 @@ Important protocol note: this call starts background work and returns quickly wi
 | `advanced`                   | object           | No       | Advanced/low-frequency parameters (see below)                                                                                                                                                                 |
 
 <details>
-<summary><code>advanced</code> object parameters (24 low-frequency parameters)</summary>
+<summary><code>advanced</code> object parameters (23 low-frequency parameters)</summary>
 
 | Parameter                             | Type               | Description                                                                                                                                                                                                                             |
 | ------------------------------------- | ------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -166,10 +166,9 @@ Important protocol note: this call starts background work and returns quickly wi
 | `advanced.betas`                      | string[]           | Beta features (e.g. `["context-1m-2025-08-07"]`). Default: none                                                                                                                                                                         |
 | `advanced.additionalDirectories`      | string[]           | Additional directories the agent can access beyond cwd. Default: none                                                                                                                                                                   |
 | `advanced.outputFormat`               | object             | Structured output config: `{ type: "json_schema", schema: {...} }`. Default: omitted (plain text)                                                                                                                                       |
-| `advanced.pathToClaudeCodeExecutable` | string             | Path to the Claude Code executable. Default: auto-detect `claude`, then `claude-internal`, else SDK-bundled Claude Code (cli.js).                                                                                                       |
+| `advanced.pathToClaudeCodeExecutable` | string             | Explicit Claude Code executable path. The server validates and uses only this file when provided. Default: SDK-bundled Claude Code                                                                                                    |
 | `advanced.mcpServers`                 | object             | MCP server configurations keyed by server name. Default: none                                                                                                                                                                           |
 | `advanced.sandbox`                    | object             | Sandbox behavior config object. This controls sandbox behavior, not the actual Read/Edit/WebFetch permission rules. Default: SDK/Claude Code default                                                                                    |
-| `advanced.fallbackModel`              | string             | Fallback model if the primary model fails or is unavailable. Default: none                                                                                                                                                              |
 | `advanced.enableFileCheckpointing`    | boolean            | Enable file checkpointing to track file changes during the session. Default: `false`                                                                                                                                                    |
 | `advanced.toolConfig`                 | object             | Per-tool built-in configuration. Example: `{ askUserQuestion: { previewFormat: "html" } }`. Default: none                                                                                                                               |
 | `advanced.includePartialMessages`     | boolean            | When true, includes intermediate streaming messages in the response. Useful for real-time progress monitoring. Default: false                                                                                                           |
@@ -221,7 +220,7 @@ Important protocol note: prefer `claude_code_reply` over starting a fresh `claud
 | `diskResumeConfig`           | object  | No       | Disk resume parameters (see below). Used when `CLAUDE_CODE_MCP_ALLOW_DISK_RESUME=1` and in-memory session is missing                                                                                                 |
 
 <details>
-<summary><code>diskResumeConfig</code> object parameters (34 disk-resume-only parameters)</summary>
+<summary><code>diskResumeConfig</code> object parameters (33 disk-resume-only parameters)</summary>
 
 | Parameter                                     | Type               | Description                                                                                                                                          |
 | --------------------------------------------- | ------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -244,10 +243,9 @@ Important protocol note: prefer `claude_code_reply` over starting a fresh `claud
 | `diskResumeConfig.outputFormat`               | object             | Structured output config. Default: omitted (plain text)                                                                                              |
 | `diskResumeConfig.thinking`                   | object             | Thinking config object: `{ type: "adaptive" }`, `{ type: "enabled", budgetTokens?: N }`, or `{ type: "disabled" }`. Default: SDK/Claude Code default |
 | `diskResumeConfig.resumeSessionAt`            | string             | Resume only up to and including a specific message UUID. Default: omitted                                                                            |
-| `diskResumeConfig.pathToClaudeCodeExecutable` | string             | Path to Claude Code executable. Default: auto-detect `claude`, then `claude-internal`, else SDK-bundled Claude Code (cli.js)                         |
+| `diskResumeConfig.pathToClaudeCodeExecutable` | string             | Explicit Claude Code executable path. The server validates and uses only this file when provided. Default: SDK-bundled Claude Code                  |
 | `diskResumeConfig.mcpServers`                 | object             | MCP server configurations keyed by server name. Default: none                                                                                        |
 | `diskResumeConfig.sandbox`                    | object             | Sandbox behavior config object. Default: SDK/Claude Code default                                                                                     |
-| `diskResumeConfig.fallbackModel`              | string             | Fallback model. Default: none                                                                                                                        |
 | `diskResumeConfig.enableFileCheckpointing`    | boolean            | Enable file checkpointing. Default: `false`                                                                                                          |
 | `diskResumeConfig.toolConfig`                 | object             | Per-tool built-in configuration. Default: none                                                                                                       |
 | `diskResumeConfig.includePartialMessages`     | boolean            | Include intermediate streaming messages. Default: `false`                                                                                            |
@@ -289,18 +287,18 @@ Gotchas:
 
 If your MCP client supports resources, this server exposes a couple of **read-only** MCP resources:
 
-- `claude-code-mcp:///server-info` (JSON): server metadata (version/platform/runtime + capabilities/limits)
-- `claude-code-mcp:///internal-tools` (JSON): internal tool catalog (runtime-aware, includes permission/schema metadata)
-- `claude-code-mcp:///gotchas` (Markdown): practical limits/gotchas
-- `claude-code-mcp:///quickstart` (Markdown): minimal async start/poll/respond flow
-- `claude-code-mcp:///errors` (JSON): structured error-code catalog and remediation hints
-- `claude-code-mcp:///compat-report` (JSON): compatibility report (transport/platform assumptions, runtime warnings, guidance, recommended settings, tool count diagnostics)
+- `delegate-claude:///server-info` (JSON): server metadata (version/platform/runtime + capabilities/limits)
+- `delegate-claude:///internal-tools` (JSON): internal tool catalog (runtime-aware, includes permission/schema metadata)
+- `delegate-claude:///gotchas` (Markdown): practical limits/gotchas
+- `delegate-claude:///quickstart` (Markdown): minimal async start/poll/respond flow
+- `delegate-claude:///errors` (JSON): structured error-code catalog and remediation hints
+- `delegate-claude:///compat-report` (JSON): compatibility report (transport/platform assumptions, runtime warnings, guidance, recommended settings, tool count diagnostics)
 
 Resource templates:
 
-- `claude-code-mcp:///session/{sessionId}`: lightweight session snapshot for a specific session
-- `claude-code-mcp:///tools/runtime{?sessionId}`: runtime tool view globally or per session
-- `claude-code-mcp:///compat/diff{?client}`: client-specific compatibility guidance
+- `delegate-claude:///session/{sessionId}`: lightweight session snapshot for a specific session
+- `delegate-claude:///tools/runtime{?sessionId}`: runtime tool view globally or per session
+- `delegate-claude:///compat/diff{?client}`: client-specific compatibility guidance
 
 **Disk resume (optional):** By default, `claude_code_reply` requires the session to exist in the MCP server's in-memory Session Manager. If you set `CLAUDE_CODE_MCP_ALLOW_DISK_RESUME=1`, it can attempt to resume using the Claude Code CLI's on-disk transcript even when the in-memory session is missing (e.g. after a restart / TTL cleanup). For safety, disk resume fallback requires `CLAUDE_CODE_MCP_RESUME_SECRET` to be set on the server and requires callers to pass `diskResumeConfig.resumeToken` (returned by `claude_code` / `claude_code_reply` when `CLAUDE_CODE_MCP_RESUME_SECRET` is set).
 
@@ -445,16 +443,16 @@ Claude Code on Windows requires git-bash (https://git-scm.com/downloads/win).
 
 This means the spawned CLI process cannot locate `bash.exe`. Your locally installed `claude` command may work fine — the issue is that the MCP server's child process may not inherit your shell environment.
 
-`claude-code-mcp` will try to auto-detect Git Bash from common install locations and set `CLAUDE_CODE_GIT_BASH_PATH` for child processes. If you still see this error, set `CLAUDE_CODE_GIT_BASH_PATH` explicitly in your MCP server config:
+When `CLAUDE_CODE_GIT_BASH_PATH` is unset, `delegate-claude` tries to auto-detect Git Bash from common install locations and sets the variable for child processes. An explicitly configured path is authoritative: if it does not exist, server startup fails without selecting another installation. Set it in your MCP server config when auto-detection is unreliable:
 
 For JSON-based MCP clients (Claude Desktop, Cursor, etc.):
 
 ```json
 {
   "mcpServers": {
-    "claude-code": {
+    "delegate-claude": {
       "command": "npx",
-      "args": ["-y", "@leo000001/claude-code-mcp"],
+      "args": ["-y", "@wisteria30/delegate-claude"],
       "env": {
         "CLAUDE_CODE_GIT_BASH_PATH": "C:\\Program Files\\Git\\bin\\bash.exe"
       }
@@ -468,9 +466,9 @@ For OpenCode (`opencode.json` / `opencode.jsonc`):
 ```json
 {
   "mcp": {
-    "claude-code": {
+    "delegate-claude": {
       "type": "local",
-      "command": ["npx", "-y", "@leo000001/claude-code-mcp"],
+      "command": ["npx", "-y", "@wisteria30/delegate-claude"],
       "enabled": true,
       "environment": {
         "CLAUDE_CODE_GIT_BASH_PATH": "C:\\Program Files\\Git\\bin\\bash.exe"
@@ -483,11 +481,11 @@ For OpenCode (`opencode.json` / `opencode.jsonc`):
 For OpenAI Codex CLI (`~/.codex/config.toml`):
 
 ```toml
-[mcp_servers.claude-code-mcp]
+[mcp_servers.delegate-claude]
 command = "npx"
-args = ["-y", "@leo000001/claude-code-mcp"]
+args = ["-y", "@wisteria30/delegate-claude"]
 
-[mcp_servers.claude-code-mcp.env]
+[mcp_servers.delegate-claude.env]
 CLAUDE_CODE_GIT_BASH_PATH = "C:\\Program Files\\Git\\bin\\bash.exe"
 ```
 
@@ -525,21 +523,12 @@ All environment variables are optional. They are set on the MCP server process (
 | Variable                                     | Description                                                                                                                                                                           | Default        |
 | -------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------- |
 | `CLAUDE_CODE_GIT_BASH_PATH`                  | Path to `bash.exe` on Windows (see [Windows Support](#windows-support))                                                                                                               | Auto-detected  |
-| `CLAUDE_CODE_MCP_DEFAULT_CLAUDE_COMMAND`     | Exact command name to resolve from `PATH` as the default Claude executable (for example `claude` or `claude-internal`). Mutually exclusive with `CLAUDE_CODE_MCP_DEFAULT_CLAUDE_PATH` | _(unset)_      |
-| `CLAUDE_CODE_MCP_DEFAULT_CLAUDE_PATH`        | Explicit filesystem path to use as the default Claude executable. Mutually exclusive with `CLAUDE_CODE_MCP_DEFAULT_CLAUDE_COMMAND`                                                    | _(unset)_      |
 | `CLAUDE_CODE_MCP_ALLOW_DISK_RESUME`          | Set to `1` to allow `claude_code_reply` to resume from on-disk transcripts when the in-memory session is missing                                                                      | `0` (disabled) |
 | `CLAUDE_CODE_MCP_RESUME_SECRET`              | HMAC secret used to validate `resumeToken` for disk resume fallback (recommended if disk resume is enabled)                                                                           | _(unset)_      |
 | `CLAUDE_CODE_MCP_MAX_SESSIONS`               | Maximum number of in-memory sessions (set `0` to disable the limit)                                                                                                                   | `128`          |
 | `CLAUDE_CODE_MCP_MAX_PENDING_PERMISSIONS`    | Maximum number of outstanding permission requests per session (set `0` to disable the limit)                                                                                          | `64`           |
 | `CLAUDE_CODE_MCP_EVENT_BUFFER_MAX_SIZE`      | Soft limit for in-memory event buffer per session (`0` is not supported)                                                                                                              | `1000`         |
 | `CLAUDE_CODE_MCP_EVENT_BUFFER_HARD_MAX_SIZE` | Hard limit for in-memory event buffer per session (clamped to be `>= max`; `0` is not supported)                                                                                      | `2000`         |
-
-### Choosing the default Claude executable
-
-- `CLAUDE_CODE_MCP_DEFAULT_CLAUDE_PATH` and `CLAUDE_CODE_MCP_DEFAULT_CLAUDE_COMMAND` are mutually exclusive.
-- If neither is set, the server auto-detects `claude`, then `claude-internal`, then falls back to the SDK-bundled CLI.
-- Request-level `pathToClaudeCodeExecutable` still overrides these server defaults.
-- Invalid values for these env vars are treated as startup misconfiguration and will fail the server fast.
 
 ### How to configure
 
@@ -548,9 +537,9 @@ All environment variables are optional. They are set on the MCP server process (
 ```json
 {
   "mcpServers": {
-    "claude-code": {
+    "delegate-claude": {
       "command": "npx",
-      "args": ["-y", "@leo000001/claude-code-mcp"],
+      "args": ["-y", "@wisteria30/delegate-claude"],
       "env": {
         "CLAUDE_CODE_MCP_ALLOW_DISK_RESUME": "1",
         "CLAUDE_CODE_MCP_RESUME_SECRET": "change-me"
@@ -560,14 +549,14 @@ All environment variables are optional. They are set on the MCP server process (
 }
 ```
 
-**OpenAI Codex CLI** — add an `[mcp_servers.claude-code-mcp.env]` section in `~/.codex/config.toml`:
+**OpenAI Codex CLI** — add an `[mcp_servers.delegate-claude.env]` section in `~/.codex/config.toml`:
 
 ```toml
-[mcp_servers.claude-code-mcp]
+[mcp_servers.delegate-claude]
 command = "npx"
-args = ["-y", "@leo000001/claude-code-mcp"]
+args = ["-y", "@wisteria30/delegate-claude"]
 
-[mcp_servers.claude-code-mcp.env]
+[mcp_servers.delegate-claude.env]
 CLAUDE_CODE_MCP_ALLOW_DISK_RESUME = "1"
 CLAUDE_CODE_MCP_RESUME_SECRET = "change-me"
 ```
@@ -577,9 +566,9 @@ CLAUDE_CODE_MCP_RESUME_SECRET = "change-me"
 ```json
 {
   "mcp": {
-    "claude-code": {
+    "delegate-claude": {
       "type": "local",
-      "command": ["npx", "-y", "@leo000001/claude-code-mcp"],
+      "command": ["npx", "-y", "@wisteria30/delegate-claude"],
       "enabled": true,
       "environment": {
         "CLAUDE_CODE_MCP_ALLOW_DISK_RESUME": "1",

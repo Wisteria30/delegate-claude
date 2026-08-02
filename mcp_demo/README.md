@@ -7,9 +7,9 @@ This folder contains small, copy/paste-friendly examples for integrating this MC
 ```json
 {
   "mcpServers": {
-    "claude-code": {
+    "delegate-claude": {
       "command": "npx",
-      "args": ["-y", "@leo000001/claude-code-mcp"]
+      "args": ["-y", "@wisteria30/delegate-claude"]
     }
   }
 }
@@ -18,60 +18,18 @@ This folder contains small, copy/paste-friendly examples for integrating this MC
 ## Anthropic Claude Code CLI
 
 ```bash
-claude mcp add --transport stdio claude-code -- npx -y @leo000001/claude-code-mcp
+claude mcp add --transport stdio delegate-claude -- npx -y @wisteria30/delegate-claude
 ```
 
 ## OpenAI Codex CLI
 
 ```bash
-codex mcp add claude-code -- npx -y @leo000001/claude-code-mcp
+codex mcp add delegate-claude -- npx -y @wisteria30/delegate-claude
 ```
 
 ## Choosing the Claude executable
 
-By default, the server resolves the Claude executable in this order:
-
-1. Request-level `pathToClaudeCodeExecutable`
-2. `CLAUDE_CODE_MCP_DEFAULT_CLAUDE_PATH`
-3. `CLAUDE_CODE_MCP_DEFAULT_CLAUDE_COMMAND`
-4. Auto-detected `claude`
-5. Auto-detected `claude-internal`
-6. SDK-bundled Claude Code CLI
-
-`CLAUDE_CODE_MCP_DEFAULT_CLAUDE_PATH` and `CLAUDE_CODE_MCP_DEFAULT_CLAUDE_COMMAND` are mutually exclusive.
-Invalid values are treated as startup misconfiguration and fail fast.
-
-Use command-name resolution when the executable is already on `PATH`:
-
-```json
-{
-  "mcpServers": {
-    "claude-code": {
-      "command": "npx",
-      "args": ["-y", "@leo000001/claude-code-mcp"],
-      "env": {
-        "CLAUDE_CODE_MCP_DEFAULT_CLAUDE_COMMAND": "claude-internal"
-      }
-    }
-  }
-}
-```
-
-Use an explicit path when you want a fixed binary regardless of `PATH`:
-
-```json
-{
-  "mcpServers": {
-    "claude-code": {
-      "command": "npx",
-      "args": ["-y", "@leo000001/claude-code-mcp"],
-      "env": {
-        "CLAUDE_CODE_MCP_DEFAULT_CLAUDE_PATH": "C:\\Tools\\claude-internal.cmd"
-      }
-    }
-  }
-}
-```
+The server uses the Claude Code executable bundled with SDK 0.3.220 by default. To select another executable for one session, pass its filesystem path as `advanced.pathToClaudeCodeExecutable` on `claude_code` or `diskResumeConfig.pathToClaudeCodeExecutable` on disk resume. The server validates the path before starting the SDK query and does not try another executable if validation or launch fails.
 
 ## Polling + permissions (v2 async)
 
@@ -111,9 +69,9 @@ If you see the error about missing `git-bash`, set `CLAUDE_CODE_GIT_BASH_PATH`:
 ```json
 {
   "mcpServers": {
-    "claude-code": {
+    "delegate-claude": {
       "command": "npx",
-      "args": ["-y", "@leo000001/claude-code-mcp"],
+      "args": ["-y", "@wisteria30/delegate-claude"],
       "env": {
         "CLAUDE_CODE_GIT_BASH_PATH": "C:\\Program Files\\Git\\bin\\bash.exe"
       }

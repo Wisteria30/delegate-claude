@@ -1,7 +1,7 @@
-# Repo Agent Instructions (claude-code-mcp)
+# Repo Agent Instructions (delegate-claude)
 
 This repository is a TypeScript (ESM) MCP server wrapping Claude Agent SDK / Claude Code CLI.
-Package: `@leo000001/claude-code-mcp`.
+Package: `@wisteria30/delegate-claude`.
 Assumption: MCP server and client run on the same machine (same platform), via stdio.
 
 > Last Updated: 2026-08-01
@@ -112,6 +112,7 @@ If you need to compare two versions without changing the workspace yet:
 For each upgraded runtime dependency:
 
 - **Options surface:** compare SDK `Options` fields to `src/utils/build-options.ts` (`OptionSource` + copy logic).
+- **Executable launch:** compare SDK `sdk.mjs` script-spawn detection to `SDK_SCRIPT_EXTENSIONS` in `src/utils/claude-executable.ts`.
 - **Message surface:** compare SDK `SDKMessage` union (new `type`/`subtype`) to `src/tools/query-consumer.ts` mapping.
 - **Tool discovery:** if `system/init.tools` adds new tool names, decide whether to add descriptions to `src/tools/tool-discovery.ts`.
 - **Policy filters:** if new progress events appear, confirm `claude_code_check` filtering rules in `src/tools/claude-code-check.ts`.
@@ -268,7 +269,7 @@ mcp_demo/
   - `Default: <value>`
   - `Default: SDK`
   - `Default: none`
-  - `Default: auto-detect 'claude', then 'claude-internal', else SDK-bundled` (for `pathToClaudeCodeExecutable`)
+  - `Default: SDK-bundled Claude Code` (for `pathToClaudeCodeExecutable`)
 
 Formatting source of truth:
 
@@ -285,8 +286,6 @@ Formatting source of truth:
 ## Environment Variables (Server Process)
 
 - `CLAUDE_CODE_GIT_BASH_PATH`
-- `CLAUDE_CODE_MCP_DEFAULT_CLAUDE_COMMAND`
-- `CLAUDE_CODE_MCP_DEFAULT_CLAUDE_PATH`
 - `CLAUDE_CODE_MCP_ALLOW_DISK_RESUME`
 - `CLAUDE_CODE_MCP_RESUME_SECRET`
 - `CLAUDE_CODE_MCP_MAX_SESSIONS`

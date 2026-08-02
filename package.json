@@ -1,7 +1,7 @@
 {
-  "name": "@leo000001/claude-code-mcp",
+  "name": "@wisteria30/delegate-claude",
   "version": "2.8.3",
-  "description": "MCP server that runs Claude Code as tools — start coding agents, poll their progress, and control permissions from any MCP client",
+  "description": "MCP server for delegating work to Claude Code with asynchronous sessions and explicit permission control",
   "type": "module",
   "main": "dist/index.js",
   "exports": {
@@ -10,7 +10,7 @@
     }
   },
   "bin": {
-    "claude-code-mcp": "dist/index.js"
+    "delegate-claude": "dist/index.js"
   },
   "scripts": {
     "build": "tsup",
@@ -25,7 +25,6 @@
     "e2e:stdio:interrupt:wp": "node scripts/e2e/stdio-cancel-regression.mjs --mode waiting-permission-interrupt --iterations 20",
     "e2e:stdio:reply-race": "node scripts/e2e/stdio-reply-race-regression.mjs",
     "e2e:stdio:runner": "node scripts/e2e/stdio-runner.mjs --iterations 20",
-    "e2e": "npm run build && vitest run --config e2e/vitest.config.ts",
     "prepublishOnly": "task build",
     "lint": "eslint src/ tests/",
     "format": "prettier --write \"src/**/*.ts\" \"tests/**/*.ts\"",
@@ -50,15 +49,15 @@
     "model-context-protocol",
     "ai"
   ],
-  "author": "xihuai18",
+  "author": "Wisteria30",
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/xihuai18/claude-code-mcp.git"
+    "url": "git+https://github.com/Wisteria30/delegate-claude.git"
   },
-  "homepage": "https://github.com/xihuai18/claude-code-mcp#readme",
+  "homepage": "https://github.com/Wisteria30/delegate-claude#readme",
   "bugs": {
-    "url": "https://github.com/xihuai18/claude-code-mcp/issues"
+    "url": "https://github.com/Wisteria30/delegate-claude/issues"
   },
   "publishConfig": {
     "access": "public"
