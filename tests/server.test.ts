@@ -108,34 +108,25 @@ describe("MCP Server", () => {
       const claudeCodeReply = listed.tools.find((t) => t.name === "claude_code_reply");
       const claudeCodeCheck = listed.tools.find((t) => t.name === "claude_code_check");
       const claudeCodePrompt = claudeCode?.inputSchema?.properties?.prompt as
-        | { description?: string }
-        | undefined;
+        { description?: string } | undefined;
       const claudeCodeReplySessionId = claudeCodeReply?.inputSchema?.properties?.sessionId as
-        | { description?: string }
-        | undefined;
+        { description?: string } | undefined;
       const claudeCodeEffort = claudeCode?.inputSchema?.properties?.effort as
-        | { description?: string }
-        | undefined;
+        { description?: string } | undefined;
       const claudeCodeThinking = claudeCode?.inputSchema?.properties?.thinking as
-        | { description?: string }
-        | undefined;
+        { description?: string } | undefined;
       const claudeCodeAllowedTools = claudeCode?.inputSchema?.properties?.allowedTools as
-        | { description?: string }
-        | undefined;
+        { description?: string } | undefined;
       const claudeCodeStrictAllowedTools = claudeCode?.inputSchema?.properties
         ?.strictAllowedTools as { description?: string } | undefined;
       const claudeCodeCheckAction = claudeCodeCheck?.inputSchema?.properties?.action as
-        | { description?: string }
-        | undefined;
+        { description?: string } | undefined;
       const claudeCodeCheckResponseMode = claudeCodeCheck?.inputSchema?.properties?.responseMode as
-        | { description?: string }
-        | undefined;
+        { description?: string } | undefined;
       const claudeCodeAdvanced = claudeCode?.inputSchema?.properties?.advanced as
-        | { properties?: Record<string, { description?: string }> }
-        | undefined;
+        { properties?: Record<string, { description?: string }> } | undefined;
       const replyDiskResumeConfig = claudeCodeReply?.inputSchema?.properties?.diskResumeConfig as
-        | { properties?: Record<string, { description?: string }> }
-        | undefined;
+        { properties?: Record<string, { description?: string }> } | undefined;
 
       expect(claudeCode?.description).toContain("10+ minutes");
       expect(claudeCode?.description).toContain("No final result is returned here");
@@ -297,8 +288,7 @@ describe("MCP Server", () => {
 
       const listed = await client.listTools();
       const claudeCode = listed.tools.find((t) => t.name === "claude_code") as
-        | { inputSchema?: { properties?: Record<string, unknown> } }
-        | undefined;
+        { inputSchema?: { properties?: Record<string, unknown> } } | undefined;
       const claudeCodeReply = listed.tools.find((t) => t.name === "claude_code_reply") as
         | {
             inputSchema?: {
@@ -363,8 +353,7 @@ describe("MCP Server", () => {
             })()
           : undefined;
       const payload = (normalized.structuredContent ?? parsedText) as
-        | { message?: string; sessions?: Array<{ status?: string }> }
-        | undefined;
+        { message?: string; sessions?: Array<{ status?: string }> } | undefined;
 
       expect(normalized.isError).toBeFalsy();
       expect(payload?.message).toContain("interrupted");

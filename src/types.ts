@@ -45,12 +45,7 @@ export type SessionAction = (typeof SESSION_ACTIONS)[number];
 
 /** Session status */
 export type SessionStatus =
-  | "idle"
-  | "running"
-  | "waiting_permission"
-  | "waiting_user_input"
-  | "cancelled"
-  | "error";
+  "idle" | "running" | "waiting_permission" | "waiting_user_input" | "cancelled" | "error";
 
 /** True while a session is blocked waiting for the caller to answer a pending action. */
 export function isWaitingStatus(status: SessionStatus): boolean {
@@ -374,14 +369,7 @@ export interface UserQuestionRequestRecord {
 export type FinishFn = (result: PermissionResult) => void;
 
 export type FinishSource =
-  | "respond"
-  | "timeout"
-  | "cancel"
-  | "interrupt"
-  | "cleanup"
-  | "destroy"
-  | "signal"
-  | "policy";
+  "respond" | "timeout" | "cancel" | "interrupt" | "cleanup" | "destroy" | "signal" | "policy";
 
 export interface SessionStartResult {
   sessionId: string;

@@ -29,7 +29,8 @@ export function normalizeAndAssertWorkingDirectory(
   } catch (err: unknown) {
     const detail = err instanceof Error ? ` (${err.message})` : "";
     throw new Error(
-      `Error [${ErrorCode.INVALID_ARGUMENT}]: ${contextLabel} is not accessible: ${resolvedCwd}${detail}`
+      `Error [${ErrorCode.INVALID_ARGUMENT}]: ${contextLabel} is not accessible: ${resolvedCwd}${detail}`,
+      { cause: err }
     );
   }
   if (!stat.isDirectory()) {
