@@ -119,6 +119,10 @@ args = ["-y", "@wisteria30/delegate-claude"]
 
 Codex supports both user-level (`~/.codex/config.toml`) and project-level (`.codex/config.toml`) configuration. See [Codex config reference](https://developers.openai.com/codex/config-reference) for advanced options like `tool_timeout_sec` and `enabled_tools`.
 
+The npm package also includes `skills/delegate-claude/SKILL.md`. Install or copy that directory
+into your Codex skills directory when you want Codex to choose permission modes, preserve sessions,
+and relay permission and `AskUserQuestion` actions consistently.
+
 ### From source
 
 ```bash
@@ -616,6 +620,19 @@ mise exec -- npm run dev    # Watch mode build
 `Taskfile.yml` is the source of truth for quality commands. `task ci` installs the locked npm
 dependencies, then checks formatting, lint, types, and unit tests, builds the package, and verifies
 its stdio MCP transport.
+
+Credential-backed acceptance checks are intentionally separate from CI:
+
+```bash
+mise exec -- task verify:live   # MCP server -> Claude Agent SDK -> Claude Code
+mise exec -- task verify:codex  # Codex -> packaged skill/MCP -> Claude Agent SDK
+```
+
+Both commands use temporary directories and local Claude/Codex authentication. They do not print
+credential values. `system/init` is exposed as a `progress` event with `type: "system_init"`; it
+contains the effective model, Claude Code version, permission mode, runtime tools, MCP connection
+states, skill names, and plugin names/versions. Plugin filesystem paths and authentication details
+are omitted.
 
 ### E2E regression commands
 

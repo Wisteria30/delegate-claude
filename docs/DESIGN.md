@@ -179,6 +179,7 @@
 | `tool_use_summary`            | `progress`                | `summary`                                                                                  | 工具执行摘要                              |
 | `tool_progress`               | `progress`                | `tool_use_id`, `tool_name`, `parent_tool_use_id`, `task_id`, `elapsed_time_seconds`        | 可在 minimal 过滤                         |
 | `auth_status`                 | `progress`                | `isAuthenticating`, `output`, `error`                                                      | 可在 minimal 过滤                         |
+| `system/init`                 | `progress`                | `model`, `claudeCodeVersion`, `permissionMode`, `tools`, `mcpServers`, `skills`, `plugins` | 省略 plugin path 与认证信息               |
 | `system/status`               | `progress`                | `status`, `permissionMode`                                                                 | 系统状态                                  |
 | `system/compact_boundary`     | `progress`                | `compact_metadata`                                                                         | 会话压缩边界                              |
 | `system/hook_started`         | `progress`                | `hook_id`, `hook_name`, `hook_event`                                                       | hook 开始                                 |

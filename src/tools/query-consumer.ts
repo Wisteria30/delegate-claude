@@ -855,6 +855,20 @@ export function consumeQuery(params: ConsumeQueryParams): ConsumeQueryHandle {
               permissionMode: message.permissionMode,
               fastModeState: message.fast_mode_state,
             });
+            params.sessionManager.pushEvent(message.session_id, {
+              type: "progress",
+              data: {
+                type: "system_init",
+                model: message.model,
+                claudeCodeVersion: message.claude_code_version,
+                permissionMode: message.permissionMode,
+                tools: message.tools,
+                mcpServers: message.mcp_servers,
+                skills: message.skills,
+                plugins: message.plugins.map(({ name, version }) => ({ name, version })),
+              },
+              timestamp: new Date().toISOString(),
+            });
 
             activeSessionId = message.session_id;
             if (!sessionIdResolved && shouldWaitForInit) {

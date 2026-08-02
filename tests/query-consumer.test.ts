@@ -113,6 +113,21 @@ describe("consumeQuery", () => {
 
     const events = manager.readEvents("sess-123").events;
     expect(events.some((e) => e.type === "progress")).toBe(true);
+    expect(events).toContainEqual(
+      expect.objectContaining({
+        type: "progress",
+        data: {
+          type: "system_init",
+          model: "m",
+          claudeCodeVersion: "x",
+          permissionMode: "default",
+          tools: ["Read"],
+          mcpServers: [],
+          skills: [],
+          plugins: [],
+        },
+      })
+    );
 
     manager.destroy();
   });
