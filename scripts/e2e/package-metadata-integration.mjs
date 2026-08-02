@@ -7,6 +7,7 @@ import { gunzipSync } from "node:zlib";
 const EXPECTED_PACKAGE_NAME = "@wisteria30/delegate-claude";
 const EXPECTED_EXECUTABLE_NAME = "delegate-claude";
 const EXPECTED_EXECUTABLE_PATH = "dist/index.js";
+const EXPECTED_SKILL_PATH = "skills/delegate-claude/SKILL.md";
 const EXPECTED_NODE_SHEBANG = "#!/usr/bin/env node\n";
 const UPSTREAM_COPYRIGHT = "Copyright (c) 2026 claude-code-mcp contributors";
 
@@ -79,7 +80,13 @@ function verifyDryRunMetadata(metadata) {
   assert(metadata.name === EXPECTED_PACKAGE_NAME, "npm pack package name mismatch");
   assert(Array.isArray(metadata.files), "npm pack dry-run files metadata is missing");
   const packedPaths = new Set(metadata.files.map((file) => file.path));
-  for (const filePath of ["package.json", "LICENSE", "NOTICE.md", EXPECTED_EXECUTABLE_PATH]) {
+  for (const filePath of [
+    "package.json",
+    "LICENSE",
+    "NOTICE.md",
+    EXPECTED_EXECUTABLE_PATH,
+    EXPECTED_SKILL_PATH,
+  ]) {
     assert(packedPaths.has(filePath), `npm pack dry-run is missing ${filePath}`);
   }
 }
@@ -92,6 +99,7 @@ function verifyTarball(tarballPath) {
   const license = requiredEntry(entries, "package/LICENSE").data.toString("utf8");
   const notice = requiredEntry(entries, "package/NOTICE.md").data.toString("utf8");
   const executable = requiredEntry(entries, `package/${EXPECTED_EXECUTABLE_PATH}`);
+  const skill = requiredEntry(entries, `package/${EXPECTED_SKILL_PATH}`).data.toString("utf8");
 
   assert(packageJson.name === EXPECTED_PACKAGE_NAME, "tarball package name mismatch");
   assert(
@@ -111,6 +119,10 @@ function verifyTarball(tarballPath) {
   }
   assert(license.includes(UPSTREAM_COPYRIGHT), "tarball LICENSE lost the upstream copyright");
   assert(notice.includes(UPSTREAM_COPYRIGHT), "tarball NOTICE lost the upstream copyright");
+  assert(
+    skill.includes("name: delegate-claude") && skill.includes("respond_user_input"),
+    "tarball delegate-claude skill lost its identity or user-question guidance"
+  );
 
   // Report what the tarball actually carried, not what we expected it to carry.
   return {

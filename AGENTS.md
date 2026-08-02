@@ -210,6 +210,8 @@ If a changed SDK field or message type is not reflected in at least one test, tr
 - Lint: `mise exec -- task lint`
 - Format check: `mise exec -- task format:check`
 - Stdio integration: `mise exec -- task test:stdio`
+- Live Agent SDK acceptance: `mise exec -- task verify:live`
+- Codex delegation acceptance: `mise exec -- task verify:codex`
 - Dev watch: `mise exec -- npm run dev`
 - Test watch: `mise exec -- npm run test:watch`
 - Format source: `mise exec -- npm run format`

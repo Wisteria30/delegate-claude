@@ -46,6 +46,20 @@ tasks:
     cmds:
       - node scripts/e2e/package-metadata-integration.mjs
 
+  verify:live:
+    desc: Verify the real MCP to Claude Agent SDK path with local Claude authentication
+    deps:
+      - build
+    cmds:
+      - node scripts/e2e/live-agent-sdk.mjs
+
+  verify:codex:
+    desc: Verify Codex delegation through the packaged skill and stdio MCP server
+    deps:
+      - build
+    cmds:
+      - node scripts/e2e/codex-delegation.mjs
+
   ci:
     desc: Run the complete local and CI quality gate
     cmds:

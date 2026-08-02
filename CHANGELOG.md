@@ -4,6 +4,8 @@
 
 ### Improvements
 
+- Package the canonical `delegate-claude` skill and add credential-backed `verify:live` and `verify:codex` acceptance commands.
+- Expose sanitized SDK `system/init` capabilities as a progress event so callers can verify effective runtime tools, MCP connections, skills, and plugins without leaking plugin paths or authentication details.
 - Add the full SDK 0.3.220 permission-mode contract, including guarded dangerous bypass, reply inheritance, `xhigh` effort, SDK thinking passthrough, and effective init metadata in session/results.
 - Relay `AskUserQuestion` as a distinct `user_question` action through `claude_code_check respond_user_input`, with a 30-minute in-memory lifecycle and exactly-once completion across response, cancellation, interruption, shutdown, and timeout.
 - Return shared structured errors (`code`, `message`, `recoverable`) across tools, terminal results, events, and resources without exposing prompts, answers, environment values, or secrets; distinguish SDK startup, execution, and protocol failures.
@@ -29,6 +31,7 @@
 
 ### Tests
 
+- Verify real Claude Agent SDK execution, question relay, reply continuity, permission-mode changes, file editing, command execution, server restart, and the Codex-to-Claude delegation path in isolated temporary directories.
 - Add A3 contract coverage for permission combinations, model non-substitution, user-question fidelity and lifecycle, reply overrides, and terminal user-input timeout reporting.
 - Add a reusable stdio metadata integration script to verify agent-visible tool/resource guidance through a real MCP client transport.
 - Verify npm package identity, executable mapping, and required license notices from dry-run metadata and the generated tarball.
