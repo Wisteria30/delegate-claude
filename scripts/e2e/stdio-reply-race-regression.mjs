@@ -9,10 +9,28 @@ const CASES = [
   "waiting-permission-cancel",
 ];
 
-function parsePositiveIntEnv(name, fallback) {
+function parsePositiveInt(value, source) {
+  if (!/^[1-9]\d*$/.test(value)) {
+    throw new Error(`Invalid ${source} '${value}': expected a positive integer.`);
+  }
+  const parsed = Number.parseInt(value, 10);
+  if (!Number.isSafeInteger(parsed)) {
+    throw new Error(`Invalid ${source} '${value}': expected a positive integer.`);
+  }
+  return parsed;
+}
+
+function parsePositiveIntEnv(name, defaultValue) {
   const raw = process.env[name];
-  const parsed = Number.parseInt(raw ?? "", 10);
-  return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
+  return raw === undefined ? defaultValue : parsePositiveInt(raw, name);
+}
+
+function requiredFlagValue(argv, index, flag) {
+  const value = argv[index + 1];
+  if (value === undefined || value.startsWith("--")) {
+    throw new Error(`Missing value for ${flag}.`);
+  }
+  return value;
 }
 
 function parseArgs(argv) {
@@ -25,60 +43,44 @@ function parseArgs(argv) {
     startRetryDelayMs: parsePositiveIntEnv("npm_config_start_retry_delay_ms", 750),
     waitingAttempts: parsePositiveIntEnv("npm_config_waiting_attempts", 3),
   };
-  const positional = [];
   for (let i = 2; i < argv.length; i += 1) {
     const arg = argv[i];
-    if (arg === "--case" && argv[i + 1]) {
-      parsed.caseName = argv[i + 1];
+    if (arg === "--case") {
+      parsed.caseName = requiredFlagValue(argv, i, arg);
       i += 1;
       continue;
     }
-    if (arg === "--iterations" && argv[i + 1]) {
-      parsed.iterations = Number.parseInt(argv[i + 1], 10);
+    if (arg === "--iterations") {
+      parsed.iterations = parsePositiveInt(requiredFlagValue(argv, i, arg), arg);
       i += 1;
       continue;
     }
-    if (arg === "--poll-interval-ms" && argv[i + 1]) {
-      parsed.pollIntervalMs = Number.parseInt(argv[i + 1], 10);
+    if (arg === "--poll-interval-ms") {
+      parsed.pollIntervalMs = parsePositiveInt(requiredFlagValue(argv, i, arg), arg);
       i += 1;
       continue;
     }
-    if (arg === "--max-polls" && argv[i + 1]) {
-      parsed.maxPolls = Number.parseInt(argv[i + 1], 10);
+    if (arg === "--max-polls") {
+      parsed.maxPolls = parsePositiveInt(requiredFlagValue(argv, i, arg), arg);
       i += 1;
       continue;
     }
-    if (arg === "--start-retries" && argv[i + 1]) {
-      parsed.startRetries = Number.parseInt(argv[i + 1], 10);
+    if (arg === "--start-retries") {
+      parsed.startRetries = parsePositiveInt(requiredFlagValue(argv, i, arg), arg);
       i += 1;
       continue;
     }
-    if (arg === "--start-retry-delay-ms" && argv[i + 1]) {
-      parsed.startRetryDelayMs = Number.parseInt(argv[i + 1], 10);
+    if (arg === "--start-retry-delay-ms") {
+      parsed.startRetryDelayMs = parsePositiveInt(requiredFlagValue(argv, i, arg), arg);
       i += 1;
       continue;
     }
-    if (arg === "--waiting-attempts" && argv[i + 1]) {
-      parsed.waitingAttempts = Number.parseInt(argv[i + 1], 10);
+    if (arg === "--waiting-attempts") {
+      parsed.waitingAttempts = parsePositiveInt(requiredFlagValue(argv, i, arg), arg);
       i += 1;
       continue;
     }
-    if (!arg.startsWith("--")) positional.push(arg);
-  }
-
-  // npm can forward extra args as bare positional values in some shells, e.g.:
-  // `node ... --case all 1 running-cancel`
-  // Keep this fallback so `npm run ... -- --iterations 1 --case running-cancel` remains usable.
-  for (const token of positional) {
-    const maybeInt = Number.parseInt(token, 10);
-    if (Number.isFinite(maybeInt) && String(maybeInt) === token && maybeInt > 0) {
-      parsed.iterations = maybeInt;
-      continue;
-    }
-    const lower = token.toLowerCase();
-    if (lower === "all" || CASES.includes(lower)) {
-      parsed.caseName = lower;
-    }
+    throw new Error(`Unknown argument '${arg}'.`);
   }
   return parsed;
 }
