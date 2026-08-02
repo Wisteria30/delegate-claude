@@ -318,7 +318,7 @@ Minimum suites to touch when relevant:
 ## Build Artifacts / Publishing / CI
 
 - Edit `src/`, not `dist/`
-- `npm run prepublishOnly` triggers build
+- `npm publish` triggers `prepublishOnly`, which runs `task build` (requires `task` on `PATH`; CI provides it via `mise exec -- npm publish`)
 - Publish is public scoped package
 - CI installs Node 22.23.1 and Task 3.52.0 from `mise.toml`, then runs `task ci` on Linux, Windows, and macOS.
 
