@@ -21,6 +21,19 @@ import {
 declare const __PKG_VERSION__: string;
 const SERVER_VERSION = typeof __PKG_VERSION__ !== "undefined" ? __PKG_VERSION__ : "0.0.0-dev";
 
+function toToolResponse(result: unknown, isError: boolean) {
+  return {
+    content: [
+      {
+        type: "text" as const,
+        text: JSON.stringify(result, null, 2),
+      },
+    ],
+    structuredContent: result as unknown as Record<string, unknown>,
+    isError,
+  };
+}
+
 export function createServerContext(serverCwd: string): {
   server: McpServer;
   sessionManager: SessionManager;
@@ -389,16 +402,7 @@ export function createServerContext(serverCwd: string): {
           extra.signal
         );
         const isError = typeof (result as { error?: unknown }).error === "string";
-        return {
-          content: [
-            {
-              type: "text" as const,
-              text: JSON.stringify(result, null, 2),
-            },
-          ],
-          structuredContent: result as unknown as Record<string, unknown>,
-          isError,
-        };
+        return toToolResponse(result, isError);
       } catch (err: unknown) {
         const message = err instanceof Error ? err.message : String(err);
         const errorResult = {
@@ -406,16 +410,7 @@ export function createServerContext(serverCwd: string): {
           status: "error" as const,
           error: `Error [${LocalErrorCode.INTERNAL}]: ${message}`,
         };
-        return {
-          content: [
-            {
-              type: "text" as const,
-              text: JSON.stringify(errorResult, null, 2),
-            },
-          ],
-          structuredContent: errorResult as unknown as Record<string, unknown>,
-          isError: true,
-        };
+        return toToolResponse(errorResult, true);
       }
     }
   );
@@ -470,16 +465,7 @@ export function createServerContext(serverCwd: string): {
       try {
         const result = await executeClaudeCodeReply(args, sessionManager, toolCache, extra.signal);
         const isError = typeof (result as { error?: unknown }).error === "string";
-        return {
-          content: [
-            {
-              type: "text" as const,
-              text: JSON.stringify(result, null, 2),
-            },
-          ],
-          structuredContent: result as unknown as Record<string, unknown>,
-          isError,
-        };
+        return toToolResponse(result, isError);
       } catch (err: unknown) {
         const message = err instanceof Error ? err.message : String(err);
         const errorResult = {
@@ -487,16 +473,7 @@ export function createServerContext(serverCwd: string): {
           status: "error" as const,
           error: `Error [${LocalErrorCode.INTERNAL}]: ${message}`,
         };
-        return {
-          content: [
-            {
-              type: "text" as const,
-              text: JSON.stringify(errorResult, null, 2),
-            },
-          ],
-          structuredContent: errorResult as unknown as Record<string, unknown>,
-          isError: true,
-        };
+        return toToolResponse(errorResult, true);
       }
     }
   );
@@ -529,16 +506,7 @@ export function createServerContext(serverCwd: string): {
     async (args, extra) => {
       try {
         const result = executeClaudeCodeSession(args, sessionManager, extra.signal);
-        return {
-          content: [
-            {
-              type: "text" as const,
-              text: JSON.stringify(result, null, 2),
-            },
-          ],
-          structuredContent: result as unknown as Record<string, unknown>,
-          isError: result.isError ?? false,
-        };
+        return toToolResponse(result, result.isError ?? false);
       } catch (err: unknown) {
         const message = err instanceof Error ? err.message : String(err);
         const errorResult = {
@@ -546,16 +514,7 @@ export function createServerContext(serverCwd: string): {
           message: `Error [${LocalErrorCode.INTERNAL}]: ${message}`,
           isError: true,
         };
-        return {
-          content: [
-            {
-              type: "text" as const,
-              text: JSON.stringify(errorResult, null, 2),
-            },
-          ],
-          structuredContent: errorResult as unknown as Record<string, unknown>,
-          isError: true,
-        };
+        return toToolResponse(errorResult, true);
       }
     }
   );
@@ -676,16 +635,7 @@ export function createServerContext(serverCwd: string): {
       try {
         const result = executeClaudeCodeCheck(args, sessionManager, extra.signal);
         const isError = (result as { isError?: boolean }).isError === true;
-        return {
-          content: [
-            {
-              type: "text" as const,
-              text: JSON.stringify(result, null, 2),
-            },
-          ],
-          structuredContent: result as unknown as Record<string, unknown>,
-          isError,
-        };
+        return toToolResponse(result, isError);
       } catch (err: unknown) {
         const message = err instanceof Error ? err.message : String(err);
         const errorResult = {
@@ -695,16 +645,7 @@ export function createServerContext(serverCwd: string): {
           isError: true,
           error: `Error [${LocalErrorCode.INTERNAL}]: ${message}`,
         };
-        return {
-          content: [
-            {
-              type: "text" as const,
-              text: JSON.stringify(errorResult, null, 2),
-            },
-          ],
-          structuredContent: errorResult as unknown as Record<string, unknown>,
-          isError: true,
-        };
+        return toToolResponse(errorResult, true);
       }
     }
   );
