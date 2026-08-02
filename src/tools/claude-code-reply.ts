@@ -376,7 +376,9 @@ export async function executeClaudeCodeReply(
       toolCache,
       onInit: (init) => {
         if (!input.forkSession) return;
-        if (init.session_id === input.sessionId) return;
+        if (init.session_id === input.sessionId) {
+          throw new Error("Fork requested but no new session ID received from agent.");
+        }
 
         // Restore original session state as soon as we have the fork's session ID.
         // Forking should not affect the original session (including its AbortController).
@@ -414,13 +416,6 @@ export async function executeClaudeCodeReply(
           abortController.abort()
         )
       : input.sessionId;
-    if (input.forkSession && sessionId === input.sessionId) {
-      return {
-        sessionId: input.sessionId,
-        status: "error",
-        error: `Error [${ErrorCode.INTERNAL}]: Fork requested but no new session ID received from agent.`,
-      };
-    }
 
     const resumeSecret = getResumeSecret();
     return {
