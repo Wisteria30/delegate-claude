@@ -101,21 +101,30 @@ function isWindowsSystemBash(pathLike: string): boolean {
 }
 
 /**
+ * Read CLAUDE_CODE_GIT_BASH_PATH as the single source of truth for an explicitly
+ * configured Git Bash. Returns null when the variable is unset or blank, so that
+ * every caller applies the same "explicit path wins" rule.
+ */
+function explicitGitBashPath(): { path: string; exists: boolean } | null {
+  const raw = process.env.CLAUDE_CODE_GIT_BASH_PATH;
+  if (!raw || raw.trim() === "") return null;
+  // Users sometimes include quotes in JSON/env config.
+  const normalized = normalizeMaybeQuotedPath(raw);
+  return { path: normalized, exists: existsPath(normalized) };
+}
+
+/**
  * Attempt to locate bash.exe on Windows using the same logic as the Claude CLI:
  * 1. Use CLAUDE_CODE_GIT_BASH_PATH when explicitly configured
- * 2. Otherwise find `git` in PATH and derive bash.exe from it
+ * 2. Otherwise probe the common Git for Windows install roots, then derive
+ *    bash.exe from `git` in PATH, then fall back to a non-WSL bash.exe in PATH
  *
  * An invalid explicit path is authoritative and returns null without discovery.
  * Returns the resolved path, or null if not found.
  */
 export function findGitBash(): string | null {
-  const envPathRaw = process.env.CLAUDE_CODE_GIT_BASH_PATH;
-  if (envPathRaw && envPathRaw.trim() !== "") {
-    // Users sometimes include quotes in JSON/env config.
-    const envPath = normalizeMaybeQuotedPath(envPathRaw);
-    if (existsPath(envPath)) return envPath;
-    return null;
-  }
+  const explicit = explicitGitBashPath();
+  if (explicit) return explicit.exists ? explicit.path : null;
 
   // Common Git for Windows install locations (works even if PATH is missing).
   const programFilesRoots = [
@@ -189,29 +198,28 @@ export function findGitBash(): string | null {
 }
 
 /**
- * Log a startup warning if running on Windows without a detectable bash.exe.
+ * Report Git Bash availability at startup: throw when CLAUDE_CODE_GIT_BASH_PATH
+ * is set but does not exist, export an auto-detected path when it is unset, and
+ * log a warning when nothing is detectable.
  */
 export function checkWindowsBashAvailability(): void {
   if (!isWindows()) return;
 
-  const envPathRaw = process.env.CLAUDE_CODE_GIT_BASH_PATH;
-  const envPath =
-    envPathRaw && envPathRaw.trim() !== "" ? normalizeMaybeQuotedPath(envPathRaw) : null;
-  const envValid = !!(envPath && existsPath(envPath));
-  if (envPath && !envValid) {
-    throw new Error("CLAUDE_CODE_GIT_BASH_PATH does not point to an existing file.");
+  const explicit = explicitGitBashPath();
+  if (explicit) {
+    if (!explicit.exists) {
+      throw new Error("CLAUDE_CODE_GIT_BASH_PATH does not point to an existing file.");
+    }
+    console.error(`[windows] Git Bash detected: ${explicit.path}`);
+    return;
   }
 
   const bashPath = findGitBash();
   if (bashPath) {
     // Ensure child processes can reliably locate bash.exe even when started
     // from GUI clients that don't inherit a full PATH environment.
-    if (!envValid) {
-      process.env.CLAUDE_CODE_GIT_BASH_PATH = bashPath;
-      console.error(`[windows] Git Bash detected: ${bashPath} (set CLAUDE_CODE_GIT_BASH_PATH)`);
-    } else {
-      console.error(`[windows] Git Bash detected: ${bashPath}`);
-    }
+    process.env.CLAUDE_CODE_GIT_BASH_PATH = bashPath;
+    console.error(`[windows] Git Bash detected: ${bashPath} (set CLAUDE_CODE_GIT_BASH_PATH)`);
     return;
   }
 

@@ -440,11 +440,10 @@ async function runCaseIteration(client, caseName, iteration, config) {
       record.failureStep = "waiting_permission_not_observed";
       record.endedAt = new Date().toISOString();
       return record;
-    } else {
-      record.start = waitingSetup.start;
-      sessionId = waitingSetup.sessionId;
-      cursor = waitingSetup.cursor;
     }
+    record.start = waitingSetup.start;
+    sessionId = waitingSetup.sessionId;
+    cursor = waitingSetup.cursor;
   } else {
     const started = await startSessionWithRetry(client, caseName, config);
     record.startAttempts = started.attempts;

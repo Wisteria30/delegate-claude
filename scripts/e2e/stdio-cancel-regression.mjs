@@ -61,6 +61,11 @@ function transportConfig() {
   };
 }
 
+const WAITING_PERMISSION_MODES = new Set([
+  "waiting-permission-cancel",
+  "waiting-permission-interrupt",
+]);
+
 function startArguments(mode) {
   const base = {
     maxTurns: 5,
@@ -70,7 +75,7 @@ function startArguments(mode) {
     },
   };
 
-  if (mode === "waiting-permission-cancel" || mode === "waiting-permission-interrupt") {
+  if (WAITING_PERMISSION_MODES.has(mode)) {
     return {
       ...base,
       prompt:
@@ -133,10 +138,7 @@ async function runIteration(client, i, config) {
 
   const sessionId = started.sessionId;
   let cursor;
-  if (
-    config.mode === "waiting-permission-cancel" ||
-    config.mode === "waiting-permission-interrupt"
-  ) {
+  if (WAITING_PERMISSION_MODES.has(config.mode)) {
     const polled = await pollUntilWaitingOrTerminal(client, sessionId, config);
     record.preCancelPoll = polled;
     cursor = polled.cursor;
@@ -144,27 +146,24 @@ async function runIteration(client, i, config) {
 
   const sessionAction = config.mode.includes("interrupt") ? "interrupt" : "cancel";
   record.sessionAction = sessionAction;
-  const actionResult = parseToolResponse(
+  record.actionResult = parseToolResponse(
     await client.callTool({
       name: "claude_code_session",
       arguments: { action: sessionAction, sessionId },
     })
   );
-  const pollAfterAction = parseToolResponse(
+  record.pollAfterAction = parseToolResponse(
     await client.callTool({
       name: "claude_code_check",
       arguments: { action: "poll", sessionId, cursor, responseMode: "full" },
     })
   );
-  const sessionListAfterAction = parseToolResponse(
+  record.sessionListAfterAction = parseToolResponse(
     await client.callTool({
       name: "claude_code_session",
       arguments: { action: "list" },
     })
   );
-  record.actionResult = actionResult;
-  record.pollAfterAction = pollAfterAction;
-  record.sessionListAfterAction = sessionListAfterAction;
 
   const resources = await client.listResources();
   record.resourcesAfterCancel = resources.resources.map((r) => r.uri);
