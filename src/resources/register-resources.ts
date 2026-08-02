@@ -7,12 +7,14 @@ import {
   ErrorCode,
   DEFAULT_POLL_INTERVAL_RUNNING_MS,
   DEFAULT_POLL_INTERVAL_WAITING_MS,
+  DEFAULT_USER_QUESTION_TIMEOUT_MS,
 } from "../types.js";
 import {
   defaultCatalogTools,
   discoverToolsFromInit,
   type ToolDiscoveryCache,
 } from "../tools/tool-discovery.js";
+import { isRecoverable } from "../utils/structured-error.js";
 const RESOURCE_SCHEME = "delegate-claude";
 
 export const RESOURCE_URIS = {
@@ -73,6 +75,43 @@ function extractSingleVariable(value: string | string[] | null | undefined): str
   return undefined;
 }
 
+/** Static error catalog served by the `errors` resource (constant for the process lifetime). */
+const ERROR_CATALOG: {
+  codes: ErrorCode[];
+  hints: Record<ErrorCode, string>;
+  recoverable: Record<string, boolean>;
+} = {
+  codes: Object.values(ErrorCode),
+  hints: {
+    [ErrorCode.INVALID_ARGUMENT]: "Validate required fields and enum values.",
+    [ErrorCode.SESSION_NOT_FOUND]: "Session may be expired or server-restarted.",
+    [ErrorCode.SESSION_BUSY]: "Wait for running/waiting_permission session to settle.",
+    [ErrorCode.PERMISSION_REQUEST_NOT_FOUND]:
+      "The permission request was already finished/expired.",
+    [ErrorCode.USER_INPUT_REQUEST_NOT_FOUND]:
+      "The user question was already answered, expired, or never existed in this process.",
+    [ErrorCode.USER_INPUT_SESSION_MISMATCH]:
+      "Use the sessionId that owns this user-question requestId.",
+    [ErrorCode.PERMISSION_DENIED]: "Check token/secrets/policy restrictions.",
+    [ErrorCode.MODEL_UNAVAILABLE]:
+      "Choose an available model explicitly; no alternate model is tried.",
+    [ErrorCode.USER_INPUT_TIMEOUT]: "Start a new turn; pending questions are in-memory only.",
+    [ErrorCode.PERMISSION_TIMEOUT]: "Respond to permission actions before expiresAt.",
+    [ErrorCode.SDK_START_FAILED]:
+      "Check the explicit executable, credentials, and SDK startup environment.",
+    [ErrorCode.SDK_EXECUTION_FAILED]:
+      "Inspect non-sensitive session events and the explicit execution limits.",
+    [ErrorCode.SDK_PROTOCOL_ERROR]:
+      "Check the installed SDK contract and captured non-sensitive event metadata.",
+    [ErrorCode.RESOURCE_EXHAUSTED]: "Reduce session count or increase server limits.",
+    [ErrorCode.TIMEOUT]: "Increase timeout or poll/respond more frequently.",
+    [ErrorCode.CANCELLED]: "Request/session was cancelled by caller or shutdown.",
+    [ErrorCode.INTERNAL]: "Inspect server logs and runtime environment.",
+  },
+  recoverable: Object.fromEntries(
+    Object.values(ErrorCode).map((code) => [code, isRecoverable(code)])
+  ),
+};
 function buildGotchasEntries(): GotchaEntry[] {
   return [
     {
@@ -178,7 +217,7 @@ export function registerResources(
   deps: { toolCache: ToolDiscoveryCache; version: string; sessionManager: SessionManager }
 ): void {
   const startedAt = new Date().toISOString();
-  const resourceSchemaVersion = "1.5";
+  const resourceSchemaVersion = "1.6";
   const mcpProtocolVersion = "2025-03-26";
   const gotchasEntries = buildGotchasEntries();
   const catalogToolNames = new Set(defaultCatalogTools().map((tool) => tool.name));
@@ -330,7 +369,8 @@ export function registerResources(
           "2. Store `sessionId` from the start response.",
           "3. Poll with `claude_code_check(action='poll')`, passing the previous `nextCursor` back as `cursor`.",
           "4. If `actions[]` contains a permission request, answer it with `claude_code_check(action='respond_permission')`.",
-          "5. Continue polling until `status` becomes `idle`, `error`, or `cancelled`.",
+          "5. If `actions[]` contains `type='user_question'`, show the questions without reordering and answer with `claude_code_check(action='respond_user_input', answers={...})`; keys are question text and multi-select values are comma-separated.",
+          "6. Continue polling until `status` becomes `idle`, `error`, or `cancelled`.",
           "",
           "## Continue an existing run",
           "",
@@ -341,7 +381,7 @@ export function registerResources(
           "",
           "- This backend is asynchronous: `claude_code` and `claude_code_reply` start work, and the final result arrives later via polling.",
           "- Claude Code may keep working for 10+ minutes on larger tasks, especially with `effort='high'` or `effort='max'`; keep polling and be patient before treating it as stuck.",
-          "- **Poll frequency**: For `running` sessions, sleep at least 2 minutes between polls; increase for complex tasks. Do NOT high-frequency poll — it wastes tokens. Only poll frequently (~1s) when `waiting_permission`. Adapt interval based on task complexity and whether the previous poll returned new events.",
+          "- **Poll frequency**: For `running` sessions, sleep at least 2 minutes between polls; increase for complex tasks. Do NOT high-frequency poll — it wastes tokens. Only poll frequently (~1s) when `waiting_permission` or `waiting_user_input`. Adapt interval based on task complexity and whether the previous poll returned new events.",
           "- `model` is optional. If omitted, Claude Code chooses the effective model from its own defaults/settings.",
           "- `allowedTools` is pre-approval by default; set `strictAllowedTools=true` when you need a strict allowlist.",
           "- `allow_for_session` usually works best when the same tool will be used repeatedly in one session.",
@@ -354,7 +394,7 @@ export function registerResources(
           "- If `decision='allow_for_session'` still shows a permission request, inspect `actions[].suggestions` / `blockedPath`; directory access may need a more specific permission update.",
           "",
           "Notes:",
-          "- `respond_user_input` is not supported. Use only `respond_permission` for approvals.",
+          "- `AskUserQuestion` always waits for `respond_user_input`, including `bypassPermissions`; it is never treated as a permission approval.",
           "- OpenCode/Codex-style clients usually work best when they store `sessionId` + `nextCursor` and answer approvals with `decision=allow_for_session`.",
           "- Prefer `responseMode='delta_compact'` to reduce per-poll payload size (does not change recommended poll interval).",
         ].join("\n"),
@@ -372,28 +412,12 @@ export function registerResources(
       mimeType: "application/json",
     },
     () => {
-      const codes = Object.values(ErrorCode);
-      const hints = {
-        [ErrorCode.INVALID_ARGUMENT]: "Validate required fields and enum values.",
-        [ErrorCode.SESSION_NOT_FOUND]: "Session may be expired or server-restarted.",
-        [ErrorCode.SESSION_BUSY]: "Wait for running/waiting_permission session to settle.",
-        [ErrorCode.PERMISSION_REQUEST_NOT_FOUND]:
-          "The permission request was already finished/expired.",
-        [ErrorCode.PERMISSION_DENIED]: "Check token/secrets/policy restrictions.",
-        [ErrorCode.RESOURCE_EXHAUSTED]: "Reduce session count or increase server limits.",
-        [ErrorCode.TIMEOUT]: "Increase timeout or poll/respond more frequently.",
-        [ErrorCode.CANCELLED]: "Request/session was cancelled by caller or shutdown.",
-        [ErrorCode.INTERNAL]: "Inspect server logs and runtime environment.",
-      };
       return asJsonResource(
         errorsUri,
         asVersionedPayload({
           schemaVersion: resourceSchemaVersion,
           stability: "stable",
-          payload: {
-            codes,
-            hints,
-          },
+          payload: ERROR_CATALOG,
         })
       );
     }
@@ -461,7 +485,7 @@ export function registerResources(
           resourcesListChanged: true,
           sessionInterrupt: true,
           allowForSessionDecision: true,
-          respondUserInput: false,
+          respondUserInput: true,
           prompts: false,
           completions: false,
         },
@@ -470,6 +494,7 @@ export function registerResources(
           poll: {
             runningMs: DEFAULT_POLL_INTERVAL_RUNNING_MS,
             waitingPermissionMs: DEFAULT_POLL_INTERVAL_WAITING_MS,
+            waitingUserInputMs: DEFAULT_POLL_INTERVAL_WAITING_MS,
             cursorStrategy:
               "Persist nextCursor and de-duplicate by event.id. Do NOT high-frequency poll running sessions.",
           },
@@ -477,6 +502,7 @@ export function registerResources(
             sessionInitTimeoutMs: 10000,
             permissionRequestTimeoutMs: 60000,
             permissionRequestTimeoutMaxMs: 300000,
+            userQuestionTimeoutMs: DEFAULT_USER_QUESTION_TIMEOUT_MS,
           },
         },
         guidance: [
@@ -487,7 +513,7 @@ export function registerResources(
           "Claude Code uses the SDK-bundled executable by default. When pathToClaudeCodeExecutable is provided, the server validates and uses only that file.",
           "This server assumes MCP client and server run on the same machine/platform.",
           "Prefer responseMode='delta_compact' to reduce per-poll payload size. Running sessions should still poll at >=2 minute intervals.",
-          "respond_user_input is not supported on this backend; use poll/respond_permission flow.",
+          "Use respond_user_input for user_question actions. Pending user questions are process-local and are not recovered after restart.",
         ],
         toolCounts: {
           catalogCount: toolCatalogCount,

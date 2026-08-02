@@ -9,6 +9,7 @@ import { createServerContext } from "./server.js";
 import { isBenignRuntimeError } from "./utils/runtime-errors.js";
 import { decideStdinShutdown } from "./utils/stdin-shutdown.js";
 import { checkWindowsBashAvailability } from "./utils/windows.js";
+import { isActiveStatus } from "./types.js";
 
 const STDIN_SHUTDOWN_CHECK_MS = 750;
 const STDIN_SHUTDOWN_MAX_WAIT_MS = process.platform === "win32" ? 15_000 : 10_000;
@@ -17,16 +18,24 @@ function summarizeSessions(ctx: ReturnType<typeof createServerContext>): {
   total: number;
   running: number;
   waitingPermission: number;
+  waitingUserInput: number;
   terminal: number;
 } {
   const sessions = ctx.sessionManager.list();
-  const running = sessions.filter((s) => s.status === "running").length;
-  const waitingPermission = sessions.filter((s) => s.status === "waiting_permission").length;
+  let running = 0;
+  let waitingPermission = 0;
+  let waitingUserInput = 0;
+  for (const s of sessions) {
+    if (s.status === "running") running += 1;
+    else if (s.status === "waiting_permission") waitingPermission += 1;
+    else if (s.status === "waiting_user_input") waitingUserInput += 1;
+  }
   return {
     total: sessions.length,
     running,
     waitingPermission,
-    terminal: sessions.length - running - waitingPermission,
+    waitingUserInput,
+    terminal: sessions.length - running - waitingPermission - waitingUserInput,
   };
 }
 
@@ -87,16 +96,14 @@ async function main(): Promise<void> {
       clearTimeout(forceExitTimer);
     }
   };
-  function handleStdinError(error: Error) {
-    console.error("stdin error:", error);
+  function handleStdinError(_error: Error) {
+    console.error("stdin error observed; shutting down");
     lastExitCode = 1;
     void shutdown("stdin_error");
   }
 
   function hasActiveSessions(): boolean {
-    return sessionManager
-      .list()
-      .some((s) => s.status === "running" || s.status === "waiting_permission");
+    return sessionManager.list().some((s) => isActiveStatus(s.status));
   }
 
   const evaluateStdinTermination = () => {
@@ -147,10 +154,10 @@ async function main(): Promise<void> {
 
   const handleUnexpectedError = (error: unknown) => {
     if (isBenignRuntimeError(error)) {
-      console.error("Ignored benign runtime abort:", error);
+      console.error("Ignored benign runtime abort");
       return;
     }
-    console.error("Unhandled runtime error:", error);
+    console.error("Unhandled runtime error; shutting down");
     lastExitCode = 1;
     void shutdown("runtime_error");
   };
@@ -211,7 +218,7 @@ async function main(): Promise<void> {
   console.error(`delegate-claude server started (transport=stdio, cwd: ${serverCwd})`);
 }
 
-main().catch((err) => {
-  console.error("Fatal error:", err);
+main().catch((_err) => {
+  console.error("Fatal server startup error");
   process.exit(1);
 });

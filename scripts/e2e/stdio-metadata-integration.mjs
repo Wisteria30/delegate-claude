@@ -69,8 +69,9 @@ async function main() {
       "claude_code description lost async result guidance"
     );
     assert(
-      claudeCode?.description?.includes("respond_user_input is not supported"),
-      "claude_code description lost unsupported flow guidance"
+      claudeCode?.description?.includes("user_question") &&
+        claudeCode?.description?.includes("respond_user_input"),
+      "claude_code description lost user-question guidance"
     );
     assert(
       claudeCodeCheck?.description?.includes("persist nextCursor"),
@@ -106,9 +107,14 @@ async function main() {
       quickstartText.includes("respond_permission"),
       "quickstart missing permission-response guidance"
     );
+    assert(
+      quickstartText.includes("respond_user_input") && quickstartText.includes("bypassPermissions"),
+      "quickstart missing user-question guidance"
+    );
     assert(gotchasText.includes("Severity:"), "gotchas missing structured severity guidance");
     assert(gotchasText.includes("Remedy:"), "gotchas missing remedy guidance");
     assert(Array.isArray(compat.guidance), "compat-report guidance missing");
+    assert(compat.features?.respondUserInput === true, "compat-report user input feature missing");
     assert(
       compat.guidance.some(
         (item) => typeof item === "string" && item.includes("README-level documentation is visible")

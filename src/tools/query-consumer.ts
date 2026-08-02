@@ -1,6 +1,7 @@
 import { AbortError, query } from "@anthropic-ai/claude-agent-sdk";
 import type {
   CanUseTool,
+  HookCallback,
   Options,
   SDKMessage,
   SDKResultMessage,
@@ -9,19 +10,30 @@ import type {
 import type { SessionManager } from "../session/manager.js";
 import type {
   AgentResult,
+  FinishFn,
   PermissionRequestRecord,
   PermissionResult,
   StoredAgentResult,
+  SessionInfo,
+  StructuredError,
+  UserQuestion,
+  UserQuestionOption,
 } from "../types.js";
-import { ErrorCode } from "../types.js";
-import { enhanceWindowsError } from "../utils/windows.js";
+import { DEFAULT_USER_QUESTION_TIMEOUT_MS, ErrorCode } from "../types.js";
 import { normalizePermissionUpdatedInput } from "../utils/permission-updated-input.js";
 import { normalizeToolInput } from "../utils/normalize-tool-input.js";
+import { normalizeToolPolicyNames } from "../utils/tool-policy.js";
 import {
   findUnsupportedPosixPathInToolInput,
   isUnsupportedPosixAbsolutePath,
 } from "../utils/normalize-windows-path.js";
 import type { ToolDiscoveryCache } from "./tool-discovery.js";
+import {
+  classifySdkStartError,
+  DelegateError,
+  formatStructuredError,
+  structuredError,
+} from "../utils/structured-error.js";
 
 export type ConsumeQueryMode = "start" | "resume" | "disk-resume";
 
@@ -34,6 +46,12 @@ const DEFAULT_PERMISSION_REQUEST_TIMEOUT_MS = 60_000;
 export const MAX_PERMISSION_REQUEST_TIMEOUT_MS = 5 * 60_000;
 
 export const MAX_PREINIT_BUFFER_MESSAGES = 200;
+
+/**
+ * SDK hook timeout (seconds) for the AskUserQuestion PreToolUse hook. Kept slightly
+ * above the user-question wait so our own timeout is the one that fires first.
+ */
+const USER_QUESTION_HOOK_TIMEOUT_S = Math.ceil(DEFAULT_USER_QUESTION_TIMEOUT_MS / 1000) + 10;
 
 export type ErrorClass = "abort" | "transient" | "fatal";
 
@@ -121,15 +139,88 @@ function describeTool(toolName: string, toolCache?: ToolDiscoveryCache): string 
   return found?.description;
 }
 
-function normalizePolicyToolNames(tools: string[] | undefined): string[] {
-  if (!Array.isArray(tools) || tools.length === 0) return [];
-  return tools
-    .filter((tool): tool is string => typeof tool === "string")
-    .map((tool) => tool.trim())
-    .filter((tool) => tool !== "");
+/**
+ * Evaluate the session's hard tool policy once, returning both the denial (if any)
+ * and the normalized allowlist so callers do not re-normalize it.
+ */
+function evaluateToolPolicy(
+  session: SessionInfo | undefined,
+  normalizedToolName: string
+): { denial?: Extract<PermissionResult, { behavior: "deny" }>; allowedTools: string[] } {
+  const allowedTools = normalizeToolPolicyNames(session?.allowedTools);
+  if (!session || normalizedToolName === "") return { allowedTools };
+
+  const disallowedTools = normalizeToolPolicyNames(session.disallowedTools);
+  if (disallowedTools.includes(normalizedToolName)) {
+    return {
+      denial: {
+        behavior: "deny",
+        message: `Tool '${normalizedToolName}' is disallowed by session policy.`,
+      },
+      allowedTools,
+    };
+  }
+
+  if (
+    session.strictAllowedTools === true &&
+    allowedTools.length > 0 &&
+    !allowedTools.includes(normalizedToolName)
+  ) {
+    return {
+      denial: {
+        behavior: "deny",
+        message: `Tool '${normalizedToolName}' is not in allowedTools under strictAllowedTools policy.`,
+        interrupt: false,
+      },
+      allowedTools,
+    };
+  }
+
+  return { allowedTools };
 }
 
-function sdkResultToAgentResult(result: SDKResultMessage): AgentResult {
+/** Opaque, per-tool-use identifier the caller echoes back on respond_*. */
+function newRequestId(toolUseId: string | undefined, kind: string): string {
+  return `${toolUseId}:${kind}:${Date.now()}:${Math.random().toString(16).slice(2)}`;
+}
+
+/**
+ * Register a pending caller action and wait for its decision. `register` returns false
+ * when the session cannot accept the request, in which case we deny immediately instead
+ * of hanging. The synchronous `aborted` re-check covers a signal that fired before the
+ * listener was attached (M1 fix) — the "abort" event would never arrive otherwise.
+ */
+function awaitPendingDecision(opts: {
+  signal: AbortSignal;
+  register: (finish: FinishFn) => boolean;
+  cancel: () => void;
+  unregisteredDenyMessage: string;
+}): Promise<PermissionResult> {
+  return new Promise<PermissionResult>((resolve) => {
+    let finished = false;
+    const abortListener = () => opts.cancel();
+    const finish: FinishFn = (result) => {
+      if (finished) return;
+      finished = true;
+      opts.signal.removeEventListener("abort", abortListener);
+      resolve(result);
+    };
+
+    if (!opts.register(finish)) {
+      finish({ behavior: "deny", message: opts.unregisteredDenyMessage, interrupt: true });
+      return;
+    }
+
+    opts.signal.addEventListener("abort", abortListener, { once: true });
+    if (opts.signal.aborted) abortListener();
+  });
+}
+
+function sdkResultToAgentResult(
+  result: SDKResultMessage,
+  session: SessionInfo | undefined,
+  terminalError?: StructuredError
+): AgentResult {
   const sessionTotalTurns = (result as unknown as { session_total_turns?: unknown })
     .session_total_turns;
   const sessionTotalCostUsd = (result as unknown as { session_total_cost_usd?: unknown })
@@ -148,7 +239,20 @@ function sdkResultToAgentResult(result: SDKResultMessage): AgentResult {
     usage: result.usage,
     modelUsage: result.modelUsage,
     permissionDenials: result.permission_denials,
+    model: session?.model,
+    claudeCodeVersion: session?.claudeCodeVersion,
+    permissionMode: session?.permissionMode,
   };
+
+  if (terminalError) {
+    return {
+      ...base,
+      result: formatStructuredError(terminalError),
+      isError: true,
+      error: terminalError,
+      errorSubtype: terminalError.code,
+    };
+  }
 
   if (result.subtype === "success") {
     return {
@@ -159,30 +263,90 @@ function sdkResultToAgentResult(result: SDKResultMessage): AgentResult {
     };
   }
 
-  const errors =
-    Array.isArray(result.errors) && result.errors.length > 0
-      ? result.errors.map(String).join("\n")
-      : `Error [${result.subtype}]: Unknown error`;
-
+  const error = structuredError(
+    result.subtype === "error_during_execution"
+      ? ErrorCode.SDK_EXECUTION_FAILED
+      : ErrorCode.RESOURCE_EXHAUSTED,
+    `Claude Agent SDK returned '${result.subtype}'.`
+  );
   return {
     ...base,
-    result: errors,
+    result: formatStructuredError(error),
     isError: true,
+    error,
     errorSubtype: result.subtype,
   };
 }
 
-function errorToAgentResult(sessionId: string, err: unknown): AgentResult {
-  const message =
-    err instanceof Error ? enhanceWindowsError(err.message) : enhanceWindowsError(String(err));
+function errorToAgentResult(
+  sessionId: string,
+  session?: SessionInfo,
+  terminalError?: StructuredError
+): AgentResult {
+  const error =
+    terminalError ??
+    structuredError(ErrorCode.SDK_PROTOCOL_ERROR, "Claude Agent SDK protocol processing failed.");
   return {
     sessionId,
-    result: `Error [${ErrorCode.INTERNAL}]: ${message}`,
+    result: formatStructuredError(error),
     isError: true,
+    error,
+    model: session?.model,
+    claudeCodeVersion: session?.claudeCodeVersion,
+    permissionMode: session?.permissionMode,
     durationMs: 0,
     numTurns: 0,
     totalCostUsd: 0,
   };
+}
+
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  return !!value && typeof value === "object" && !Array.isArray(value);
+}
+
+function parseUserQuestionOption(value: unknown): UserQuestionOption | undefined {
+  if (!isPlainObject(value)) return undefined;
+  if (typeof value.label !== "string" || typeof value.description !== "string") return undefined;
+  if (value.preview !== undefined && typeof value.preview !== "string") return undefined;
+  return {
+    label: value.label,
+    description: value.description,
+    ...(value.preview !== undefined ? { preview: value.preview } : {}),
+  };
+}
+
+function parseUserQuestion(value: unknown): UserQuestion | undefined {
+  if (!isPlainObject(value)) return undefined;
+  if (
+    typeof value.question !== "string" ||
+    typeof value.header !== "string" ||
+    typeof value.multiSelect !== "boolean" ||
+    !Array.isArray(value.options)
+  )
+    return undefined;
+  const options: UserQuestionOption[] = [];
+  for (const optionValue of value.options) {
+    const option = parseUserQuestionOption(optionValue);
+    if (!option) return undefined;
+    options.push(option);
+  }
+  return {
+    question: value.question,
+    header: value.header,
+    options,
+    multiSelect: value.multiSelect,
+  };
+}
+
+function parseUserQuestions(input: Record<string, unknown>): UserQuestion[] | undefined {
+  if (!Array.isArray(input.questions)) return undefined;
+  const questions: UserQuestion[] = [];
+  for (const value of input.questions) {
+    const question = parseUserQuestion(value);
+    if (!question) return undefined;
+    questions.push(question);
+  }
+  return questions;
 }
 
 function messageToEvent(msg: SDKMessage): { type: "output" | "progress"; data: unknown } | null {
@@ -435,6 +599,48 @@ export function consumeQuery(params: ConsumeQueryParams): ConsumeQueryHandle {
     params.permissionRequestTimeoutMs
   );
 
+  const waitForUserQuestion = async (
+    sessionId: string,
+    input: Record<string, unknown>,
+    toolUseId: string,
+    requestId: string,
+    signal: AbortSignal
+  ): Promise<PermissionResult> => {
+    const questions = parseUserQuestions(input);
+    if (!questions) {
+      const error = structuredError(
+        ErrorCode.SDK_PROTOCOL_ERROR,
+        "AskUserQuestion input did not match the SDK question contract."
+      );
+      params.sessionManager.pushEvent(sessionId, {
+        type: "error",
+        data: { error },
+        timestamp: new Date().toISOString(),
+      });
+      return { behavior: "deny", message: formatStructuredError(error), interrupt: true };
+    }
+
+    const record = {
+      requestId,
+      toolUseId,
+      questions,
+      originalInput: input,
+      createdAt: new Date().toISOString(),
+    };
+    return await awaitPendingDecision({
+      signal,
+      register: (finish) => params.sessionManager.setPendingUserQuestion(sessionId, record, finish),
+      cancel: () =>
+        void params.sessionManager.finishUserQuestion(
+          sessionId,
+          requestId,
+          { behavior: "deny", message: "Session cancelled", interrupt: true },
+          "signal"
+        ),
+      unregisteredDenyMessage: "User question could not be registered.",
+    });
+  };
+
   const canUseTool: CanUseTool = async (toolName, input, options) => {
     const sessionId = await getSessionId();
     const normalizedToolName = toolName.trim();
@@ -467,27 +673,8 @@ export function consumeQuery(params: ConsumeQueryParams): ConsumeQueryHandle {
     // defensive fast-path in case the SDK calls canUseTool for all tool uses.
     const sessionInfo = params.sessionManager.get(sessionId);
     if (sessionInfo) {
-      const disallowedTools = normalizePolicyToolNames(sessionInfo.disallowedTools);
-      const allowedTools = normalizePolicyToolNames(sessionInfo.allowedTools);
-      if (normalizedToolName !== "" && disallowedTools.includes(normalizedToolName)) {
-        return {
-          behavior: "deny",
-          message: `Tool '${normalizedToolName}' is disallowed by session policy.`,
-        };
-      }
-
-      if (
-        sessionInfo.strictAllowedTools === true &&
-        normalizedToolName !== "" &&
-        allowedTools.length > 0 &&
-        !allowedTools.includes(normalizedToolName)
-      ) {
-        return {
-          behavior: "deny",
-          message: `Tool '${normalizedToolName}' is not in allowedTools under strictAllowedTools policy.`,
-          interrupt: false,
-        };
-      }
+      const { denial, allowedTools } = evaluateToolPolicy(sessionInfo, normalizedToolName);
+      if (denial) return denial;
 
       if (
         !options.blockedPath &&
@@ -501,12 +688,9 @@ export function consumeQuery(params: ConsumeQueryParams): ConsumeQueryHandle {
       }
     }
 
-    const requestId = `${options.toolUseID}:${toolName}:${Date.now()}:${Math.random()
-      .toString(16)
-      .slice(2)}`;
-    const createdAt = new Date().toISOString();
-    const timeoutMs = permissionRequestTimeoutMs;
-    const expiresAt = new Date(Date.now() + timeoutMs).toISOString();
+    const requestId = newRequestId(options.toolUseID, toolName);
+    // `timeoutMs`/`expiresAt` are owned by SessionManager, which holds the timer and
+    // stamps both when the request is registered.
     const record: PermissionRequestRecord = {
       requestId,
       toolName,
@@ -520,62 +704,89 @@ export function consumeQuery(params: ConsumeQueryParams): ConsumeQueryHandle {
       toolUseID: options.toolUseID,
       agentID: options.agentID,
       suggestions: options.suggestions,
-      createdAt,
-      timeoutMs,
-      expiresAt,
+      createdAt: new Date().toISOString(),
     };
 
-    return await new Promise<PermissionResult>((resolve) => {
-      let finished = false;
-      const abortListener = () => {
-        params.sessionManager.finishRequest(
+    return await awaitPendingDecision({
+      signal: options.signal,
+      register: (finish) =>
+        params.sessionManager.setPendingPermission(
+          sessionId,
+          record,
+          finish,
+          permissionRequestTimeoutMs
+        ),
+      cancel: () =>
+        void params.sessionManager.finishRequest(
           sessionId,
           requestId,
           { behavior: "deny", message: "Session cancelled", interrupt: true },
           "signal"
-        );
-      };
-      const finish: (result: PermissionResult) => void = (result) => {
-        if (finished) return;
-        finished = true;
-        options.signal.removeEventListener("abort", abortListener);
-        resolve(result);
-      };
-
-      const registered = params.sessionManager.setPendingPermission(
-        sessionId,
-        record,
-        finish,
-        permissionRequestTimeoutMs
-      );
-
-      // If the session was deleted/missing, resolve immediately with deny
-      // to prevent the Promise from hanging forever.
-      if (!registered) {
-        finish({
-          behavior: "deny",
-          message: "Session no longer exists.",
-          interrupt: true,
-        });
-        return;
-      }
-
-      options.signal.addEventListener("abort", abortListener, { once: true });
-
-      // M1 fix: if the signal was already aborted before we registered the
-      // listener, the "abort" event won't fire.  Check synchronously so the
-      // Promise resolves immediately instead of waiting for the timeout.
-      if (options.signal.aborted) {
-        abortListener();
-      }
+        ),
+      unregisteredDenyMessage: "Session no longer exists.",
     });
+  };
+
+  const userQuestionHook: HookCallback = async (hookInput, toolUseID, hookOptions) => {
+    if (
+      hookInput.hook_event_name !== "PreToolUse" ||
+      hookInput.tool_name !== "AskUserQuestion" ||
+      !isPlainObject(hookInput.tool_input)
+    ) {
+      return {};
+    }
+    const sessionId = await getSessionId();
+    const { denial } = evaluateToolPolicy(params.sessionManager.get(sessionId), "AskUserQuestion");
+    if (denial) {
+      return {
+        hookSpecificOutput: {
+          hookEventName: "PreToolUse",
+          permissionDecision: "deny",
+          permissionDecisionReason: denial.message,
+        },
+      };
+    }
+
+    const effectiveToolUseId = toolUseID ?? hookInput.tool_use_id;
+    const requestId = newRequestId(effectiveToolUseId, "user-question");
+    const result = await waitForUserQuestion(
+      sessionId,
+      hookInput.tool_input,
+      effectiveToolUseId,
+      requestId,
+      hookOptions.signal
+    );
+    if (result.behavior === "allow") {
+      return {
+        hookSpecificOutput: {
+          hookEventName: "PreToolUse",
+          permissionDecision: "allow",
+          updatedInput: result.updatedInput,
+        },
+      };
+    }
+    return {
+      hookSpecificOutput: {
+        hookEventName: "PreToolUse",
+        permissionDecision: "deny",
+        permissionDecisionReason: result.message,
+      },
+    };
   };
 
   const options: Partial<Options> = {
     ...params.options,
     abortController: params.abortController,
-    permissionMode: "default",
     canUseTool,
+    hooks: {
+      PreToolUse: [
+        {
+          matcher: "AskUserQuestion",
+          hooks: [userQuestionHook],
+          timeout: USER_QUESTION_HOOK_TIMEOUT_S,
+        },
+      ],
+    },
   };
 
   const startQuery = (opts: Partial<Options>): QueryLike =>
@@ -616,8 +827,11 @@ export function consumeQuery(params: ConsumeQueryParams): ConsumeQueryHandle {
       initTimeoutId = setTimeout(() => {
         close();
         rejectSessionId(
-          new Error(
-            `Error [${ErrorCode.TIMEOUT}]: session init timed out after ${params.sessionInitTimeoutMs}ms.`
+          new DelegateError(
+            structuredError(
+              ErrorCode.SDK_START_FAILED,
+              `Session init timed out after ${params.sessionInitTimeoutMs}ms.`
+            )
           )
         );
       }, params.sessionInitTimeoutMs);
@@ -637,6 +851,7 @@ export function consumeQuery(params: ConsumeQueryParams): ConsumeQueryHandle {
             params.sessionManager.setInitTools(message.session_id, message.tools);
             params.sessionManager.update(message.session_id, {
               model: message.model,
+              claudeCodeVersion: message.claude_code_version,
               permissionMode: message.permissionMode,
               fastModeState: message.fast_mode_state,
             });
@@ -682,8 +897,12 @@ export function consumeQuery(params: ConsumeQueryParams): ConsumeQueryHandle {
           if (message.type === "result") {
             streamReceivedResult = true;
             const sessionId = message.session_id ?? (await getSessionId());
-            const agentResult = sdkResultToAgentResult(message);
             const current = params.sessionManager.get(sessionId);
+            const agentResult = sdkResultToAgentResult(
+              message,
+              current,
+              params.sessionManager.getTerminalError(sessionId)
+            );
             const previousTotalTurns = current?.totalTurns ?? 0;
             const previousTotalCostUsd = current?.totalCostUsd ?? 0;
             const computedTotalTurns = previousTotalTurns + agentResult.numTurns;
@@ -752,8 +971,11 @@ export function consumeQuery(params: ConsumeQueryParams): ConsumeQueryHandle {
         // Stream ended normally. If no result was received, convert to an explicit error.
         if (shouldWaitForInit && !sessionIdResolved) {
           rejectSessionId(
-            new Error(
-              `Error [${ErrorCode.INTERNAL}]: query stream ended before receiving session init.`
+            new DelegateError(
+              structuredError(
+                ErrorCode.SDK_PROTOCOL_ERROR,
+                "Query stream ended before receiving session init."
+              )
             )
           );
         } else if (activeSessionId && !streamReceivedResult) {
@@ -771,7 +993,8 @@ export function consumeQuery(params: ConsumeQueryParams): ConsumeQueryHandle {
             );
             const agentResult = errorToAgentResult(
               sessionId,
-              "No result message received from agent."
+              current,
+              params.sessionManager.getTerminalError(sessionId)
             );
             const stored: StoredAgentResult = {
               type: "error",
@@ -798,13 +1021,11 @@ export function consumeQuery(params: ConsumeQueryParams): ConsumeQueryHandle {
 
         // Before init: no session to retry, just reject and bail.
         if (shouldWaitForInit && !sessionIdResolved) {
-          rejectSessionId(
-            new Error(
-              errClass === "abort"
-                ? `Error [${ErrorCode.CANCELLED}]: session was cancelled before init.`
-                : `Error [${ErrorCode.INTERNAL}]: ${enhanceWindowsError(err instanceof Error ? err.message : String(err))}`
-            )
-          );
+          const error =
+            errClass === "abort"
+              ? structuredError(ErrorCode.CANCELLED, "Session was cancelled before init.")
+              : classifySdkStartError(err, params.options.model);
+          rejectSessionId(new DelegateError(error));
           return;
         }
 
@@ -828,7 +1049,10 @@ export function consumeQuery(params: ConsumeQueryParams): ConsumeQueryHandle {
               attempt: retryCount,
               maxRetries: MAX_TRANSIENT_RETRIES,
               delayMs: delay,
-              error: err instanceof Error ? err.message : String(err),
+              error: structuredError(
+                ErrorCode.SDK_PROTOCOL_ERROR,
+                "Claude Agent SDK stream failed transiently."
+              ),
             },
             timestamp: new Date().toISOString(),
           });
@@ -870,17 +1094,12 @@ export function consumeQuery(params: ConsumeQueryParams): ConsumeQueryHandle {
             },
             "cleanup"
           );
-          const agentResult =
-            errClass === "abort"
-              ? {
-                  sessionId,
-                  result: `Error [${ErrorCode.CANCELLED}]: Session was cancelled.`,
-                  isError: true,
-                  durationMs: 0,
-                  numTurns: 0,
-                  totalCostUsd: 0,
-                }
-              : errorToAgentResult(sessionId, err);
+          const terminalError =
+            params.sessionManager.getTerminalError(sessionId) ??
+            (errClass === "abort"
+              ? structuredError(ErrorCode.CANCELLED, "Session was cancelled.")
+              : undefined);
+          const agentResult = errorToAgentResult(sessionId, current, terminalError);
 
           params.sessionManager.setResult(sessionId, {
             type: "error",

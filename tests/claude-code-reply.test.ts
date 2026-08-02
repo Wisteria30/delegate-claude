@@ -85,7 +85,7 @@ describe("claude-code-reply", () => {
 
     expect(result.status).toBe("error");
     if (result.status === "error") {
-      expect(result.error).toContain("CANCELLED");
+      expect(result.error.code).toBe("CANCELLED");
     }
     expect(mockQuery).not.toHaveBeenCalled();
   });
@@ -104,7 +104,7 @@ describe("claude-code-reply", () => {
 
     expect(result.status).toBe("error");
     if (result.status === "error") {
-      expect(result.error).toContain("RESOURCE_EXHAUSTED");
+      expect(result.error.code).toBe("RESOURCE_EXHAUSTED");
     }
   });
 
@@ -128,8 +128,8 @@ describe("claude-code-reply", () => {
 
       expect(result.status).toBe("error");
       if (result.status === "error") {
-        expect(result.error).toContain("INVALID_ARGUMENT");
-        expect(result.error).toContain("path does not exist");
+        expect(result.error.code).toBe("INVALID_ARGUMENT");
+        expect(result.error.message).toContain("path does not exist");
       }
       expect(mockQuery).not.toHaveBeenCalled();
     } finally {

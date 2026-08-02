@@ -7,6 +7,7 @@ import type {
   CheckAction,
   CheckResult,
   CheckResponseMode,
+  PendingAction,
   PermissionDecision,
   PermissionRequestRecord,
   PermissionResult,
@@ -14,13 +15,16 @@ import type {
   SessionInfo,
   SessionEventType,
   SessionStatus,
+  StructuredError,
 } from "../types.js";
 import {
   ErrorCode,
   DEFAULT_POLL_INTERVAL_RUNNING_MS,
   DEFAULT_POLL_INTERVAL_WAITING_MS,
+  isWaitingStatus,
 } from "../types.js";
 import { discoverToolsFromInit } from "./tool-discovery.js";
+import { structuredError } from "../utils/structured-error.js";
 
 /** Fine-grained poll control options (most callers just use responseMode). */
 export interface PollOptions {
@@ -66,14 +70,22 @@ export interface ClaudeCodeCheckInput {
 
   /** Advanced permission response options (only with decision='allow'/'allow_for_session'). */
   permissionOptions?: PermissionResponseOptions;
+
+  answers?: Record<string, string>;
+  response?: string;
+  annotations?: Record<string, { preview?: string; notes?: string }>;
 }
 
 export type ClaudeCodeCheckResult =
   | CheckResult
-  | { sessionId: string; error: string; isError: true };
+  | { sessionId: string; error: StructuredError; isError: true };
+
+function checkError(sessionId: string, code: ErrorCode, message: string): ClaudeCodeCheckResult {
+  return { sessionId, error: structuredError(code, message), isError: true };
+}
 
 function pollIntervalForStatus(status: SessionStatus): number | undefined {
-  if (status === "waiting_permission") return DEFAULT_POLL_INTERVAL_WAITING_MS;
+  if (isWaitingStatus(status)) return DEFAULT_POLL_INTERVAL_WAITING_MS;
   if (status === "running") return DEFAULT_POLL_INTERVAL_RUNNING_MS;
   return undefined;
 }
@@ -442,8 +454,15 @@ function buildResult(sessionManager: SessionManager, input: ClaudeCodeCheckInput
     return filtered;
   })();
 
-  const pending =
-    status === "waiting_permission" ? sessionManager.listPendingPermissions(sessionId) : [];
+  // Skip the copy+sort in listPending* when the maps are empty (the common poll).
+  const pendingPermissions =
+    sessionManager.getPendingPermissionCount(sessionId) > 0
+      ? sessionManager.listPendingPermissions(sessionId)
+      : [];
+  const pendingQuestions =
+    sessionManager.getPendingUserQuestionCount(sessionId) > 0
+      ? sessionManager.listPendingUserQuestions(sessionId)
+      : [];
   const stored =
     status === "idle" || status === "error" ? sessionManager.getResult(sessionId) : undefined;
 
@@ -454,7 +473,7 @@ function buildResult(sessionManager: SessionManager, input: ClaudeCodeCheckInput
     new Set([
       ...toolValidation.warnings,
       ...detectPathCompatibilityWarnings(session),
-      ...detectPendingPermissionPathWarnings(pending, session),
+      ...detectPendingPermissionPathWarnings(pendingPermissions, session),
     ])
   );
 
@@ -474,6 +493,42 @@ function buildResult(sessionManager: SessionManager, input: ClaudeCodeCheckInput
         : (cursorResetTo ?? input.cursor ?? 0);
   }
 
+  const actions: PendingAction[] = [];
+  if (includeActions) {
+    for (const req of pendingPermissions) {
+      const expiresMs = req.expiresAt ? Date.parse(req.expiresAt) : Number.NaN;
+      actions.push({
+        type: "permission",
+        requestId: req.requestId,
+        toolName: req.toolName,
+        input: req.input,
+        summary: req.summary,
+        title: req.title,
+        displayName: req.displayName,
+        decisionReason: req.decisionReason,
+        blockedPath: req.blockedPath,
+        toolUseID: req.toolUseID,
+        agentID: req.agentID,
+        suggestions: req.suggestions,
+        description: req.description,
+        createdAt: req.createdAt,
+        timeoutMs: req.timeoutMs,
+        expiresAt: req.expiresAt,
+        remainingMs: Number.isFinite(expiresMs) ? Math.max(0, expiresMs - Date.now()) : undefined,
+      });
+    }
+    for (const req of pendingQuestions) {
+      actions.push({
+        type: "user_question",
+        requestId: req.requestId,
+        toolUseId: req.toolUseId,
+        questions: req.questions,
+        createdAt: req.createdAt,
+        expiresAt: req.expiresAt,
+      });
+    }
+  }
+
   return {
     sessionId,
     status,
@@ -486,34 +541,7 @@ function buildResult(sessionManager: SessionManager, input: ClaudeCodeCheckInput
     availableTools,
     toolValidation: toolValidation.summary,
     compatWarnings: compatWarnings.length > 0 ? compatWarnings : undefined,
-    actions:
-      includeActions && status === "waiting_permission"
-        ? pending.map((req) => {
-            const expiresMs = req.expiresAt ? Date.parse(req.expiresAt) : Number.NaN;
-            const remainingMs = Number.isFinite(expiresMs)
-              ? Math.max(0, expiresMs - Date.now())
-              : undefined;
-            return {
-              type: "permission" as const,
-              requestId: req.requestId,
-              toolName: req.toolName,
-              input: req.input,
-              summary: req.summary,
-              title: req.title,
-              displayName: req.displayName,
-              decisionReason: req.decisionReason,
-              blockedPath: req.blockedPath,
-              toolUseID: req.toolUseID,
-              agentID: req.agentID,
-              suggestions: req.suggestions,
-              description: req.description,
-              createdAt: req.createdAt,
-              timeoutMs: req.timeoutMs,
-              expiresAt: req.expiresAt,
-              remainingMs,
-            };
-          })
-        : undefined,
+    actions: actions.length > 0 ? actions : undefined,
     result:
       includeResult && stored?.result
         ? redactAgentResult(stored.result, {
@@ -580,52 +608,116 @@ export function executeClaudeCodeCheck(
   requestSignal?: AbortSignal
 ): ClaudeCodeCheckResult {
   if (requestSignal?.aborted) {
-    return {
-      sessionId: input.sessionId ?? "",
-      error: `Error [${ErrorCode.CANCELLED}]: request was cancelled.`,
-      isError: true,
-    };
+    return checkError(input.sessionId ?? "", ErrorCode.CANCELLED, "Request was cancelled.");
   }
 
   if (typeof input.sessionId !== "string" || input.sessionId.trim() === "") {
-    return {
-      sessionId: "",
-      error: `Error [${ErrorCode.INVALID_ARGUMENT}]: sessionId must be a non-empty string.`,
-      isError: true,
-    };
+    return checkError("", ErrorCode.INVALID_ARGUMENT, "sessionId must be a non-empty string.");
   }
 
   const session = sessionManager.get(input.sessionId);
   if (!session) {
-    return {
-      sessionId: input.sessionId,
-      error: `Error [${ErrorCode.SESSION_NOT_FOUND}]: Session '${input.sessionId}' not found or expired.`,
-      isError: true,
-    };
+    return checkError(
+      input.sessionId,
+      ErrorCode.SESSION_NOT_FOUND,
+      `Session '${input.sessionId}' not found or expired.`
+    );
   }
 
   if (input.action === "poll") {
     return buildResult(sessionManager, input);
   }
 
+  if (input.action === "respond_user_input") {
+    if (typeof input.requestId !== "string" || input.requestId.trim() === "") {
+      return checkError(
+        input.sessionId,
+        ErrorCode.INVALID_ARGUMENT,
+        "requestId is required for respond_user_input."
+      );
+    }
+    if (
+      !input.answers ||
+      typeof input.answers !== "object" ||
+      Array.isArray(input.answers) ||
+      Object.values(input.answers).some((answer) => typeof answer !== "string")
+    ) {
+      return checkError(
+        input.sessionId,
+        ErrorCode.INVALID_ARGUMENT,
+        "answers must be a record of question text to string answer."
+      );
+    }
+    const pending = sessionManager.getPendingUserQuestion(input.sessionId, input.requestId);
+    if (!pending) {
+      const owner = sessionManager.findPendingUserQuestionSession(input.requestId);
+      return owner
+        ? checkError(
+            input.sessionId,
+            ErrorCode.USER_INPUT_SESSION_MISMATCH,
+            `requestId '${input.requestId}' belongs to a different session.`
+          )
+        : checkError(
+            input.sessionId,
+            ErrorCode.USER_INPUT_REQUEST_NOT_FOUND,
+            `requestId '${input.requestId}' was not found or is no longer pending.`
+          );
+    }
+
+    const questionTexts = new Set(pending.questions.map((question) => question.question));
+    const invalidAnswerKey = Object.keys(input.answers).find((key) => !questionTexts.has(key));
+    const invalidAnnotationKey = Object.keys(input.annotations ?? {}).find(
+      (key) => !questionTexts.has(key)
+    );
+    if (invalidAnswerKey || invalidAnnotationKey) {
+      return checkError(
+        input.sessionId,
+        ErrorCode.INVALID_ARGUMENT,
+        "answers and annotations must be keyed by the original question text."
+      );
+    }
+
+    const updatedInput: Record<string, unknown> = {
+      ...pending.originalInput,
+      answers: input.answers,
+    };
+    if (input.response !== undefined) updatedInput.response = input.response;
+    if (input.annotations !== undefined) updatedInput.annotations = input.annotations;
+
+    const completed = sessionManager.finishUserQuestion(
+      input.sessionId,
+      input.requestId,
+      { behavior: "allow", updatedInput },
+      "respond"
+    );
+    if (!completed) {
+      return checkError(
+        input.sessionId,
+        ErrorCode.USER_INPUT_REQUEST_NOT_FOUND,
+        `requestId '${input.requestId}' was already completed.`
+      );
+    }
+    return buildResult(sessionManager, input);
+  }
+
   // respond_permission
   if (typeof input.requestId !== "string" || input.requestId.trim() === "") {
-    return {
-      sessionId: input.sessionId,
-      error: `Error [${ErrorCode.INVALID_ARGUMENT}]: requestId is required for respond_permission.`,
-      isError: true,
-    };
+    return checkError(
+      input.sessionId,
+      ErrorCode.INVALID_ARGUMENT,
+      "requestId is required for respond_permission."
+    );
   }
   if (
     input.decision !== "allow" &&
     input.decision !== "deny" &&
     input.decision !== "allow_for_session"
   ) {
-    return {
-      sessionId: input.sessionId,
-      error: `Error [${ErrorCode.INVALID_ARGUMENT}]: decision must be 'allow', 'deny', or 'allow_for_session'.`,
-      isError: true,
-    };
+    return checkError(
+      input.sessionId,
+      ErrorCode.INVALID_ARGUMENT,
+      "decision must be 'allow', 'deny', or 'allow_for_session'."
+    );
   }
 
   const pendingRequest =
@@ -654,11 +746,11 @@ export function executeClaudeCodeCheck(
     "respond"
   );
   if (!ok) {
-    return {
-      sessionId: input.sessionId,
-      error: `Error [${ErrorCode.PERMISSION_REQUEST_NOT_FOUND}]: requestId '${input.requestId}' not found (already finished or expired).`,
-      isError: true,
-    };
+    return checkError(
+      input.sessionId,
+      ErrorCode.PERMISSION_REQUEST_NOT_FOUND,
+      `requestId '${input.requestId}' not found (already finished or expired).`
+    );
   }
 
   if (input.decision === "allow_for_session" && pendingRequest?.toolName) {

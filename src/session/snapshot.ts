@@ -18,6 +18,7 @@ export function buildSessionSnapshot(input: {
   return {
     ...base,
     pendingPermissionCount: sessionManager.getPendingPermissionCount(session.sessionId),
+    pendingUserQuestionCount: sessionManager.getPendingUserQuestionCount(session.sessionId),
     eventCount: sessionManager.getEventCount(session.sessionId),
     currentCursor: sessionManager.getCurrentCursor(session.sessionId),
     lastEventId: sessionManager.getLastEventId(session.sessionId),

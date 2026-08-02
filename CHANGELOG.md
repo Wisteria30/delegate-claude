@@ -4,6 +4,9 @@
 
 ### Improvements
 
+- Add the full SDK 0.3.220 permission-mode contract, including guarded dangerous bypass, reply inheritance, `xhigh` effort, SDK thinking passthrough, and effective init metadata in session/results.
+- Relay `AskUserQuestion` as a distinct `user_question` action through `claude_code_check respond_user_input`, with a 30-minute in-memory lifecycle and exactly-once completion across response, cancellation, interruption, shutdown, and timeout.
+- Return shared structured errors (`code`, `message`, `recoverable`) across tools, terminal results, events, and resources without exposing prompts, answers, environment values, or secrets; distinguish SDK startup, execution, and protocol failures.
 - Pin `@anthropic-ai/claude-agent-sdk` to `0.3.220`, bound its Anthropic SDK peer at the compatible `^0.115.0` line, update the direct MCP SDK dependency to `^1.29.0`, and align test callback fixtures with the authoritative SDK types.
 - Pin Node.js 22.23.1 and Task 3.52.0 with mise, and make `Taskfile.yml` the shared local, hook, CI, and publish quality-command source.
 - Expand SDK stream/event mapping for `rate_limit_event`, `system/api_retry`, `system/local_command_output`, `system/elicitation_complete`, `system/compact_boundary`, and partial `stream_event` output.
@@ -18,6 +21,7 @@
 
 ### Documentation
 
+- Document permission-mode validation, the `PreToolUse.updatedInput.response` user-question bridge, callback lifecycle, and structured-error producer/consumer contracts across README, DESIGN, and MCP resources.
 - Add OpenCode-specific setup and usage guidance, including local MCP config examples and async polling recommendations.
 - Sync maintainer and user documentation with the pinned toolchain and SDK 0.3.220 interface baseline.
 - Add usage reminders in model-visible guidance: long Claude Code runs are normal, and follow-up questions should use `claude_code_reply` with the existing session.
@@ -25,6 +29,7 @@
 
 ### Tests
 
+- Add A3 contract coverage for permission combinations, model non-substitution, user-question fidelity and lifecycle, reply overrides, and terminal user-input timeout reporting.
 - Add a reusable stdio metadata integration script to verify agent-visible tool/resource guidance through a real MCP client transport.
 - Verify npm package identity, executable mapping, and required license notices from dry-run metadata and the generated tarball.
 

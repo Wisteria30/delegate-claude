@@ -2282,7 +2282,7 @@ describe("consumeQuery error paths", () => {
     expect(session!.status).toBe("error");
 
     const result = manager.getResult("sess-noresult");
-    expect(result!.result.result).toContain("No result message received");
+    expect(result!.result.error?.code).toBe("SDK_PROTOCOL_ERROR");
 
     manager.destroy();
   });
@@ -2566,7 +2566,7 @@ describe("integration: consumeQuery + executeClaudeCodeCheck respond_permission"
     expect(polled.status).toBe("waiting_permission");
     expect(polled.pollInterval).toBe(1000);
     expect(polled.actions).toHaveLength(1);
-    expect(polled.actions![0].toolName).toBe("Bash");
+    expect(polled.actions![0]).toMatchObject({ type: "permission", toolName: "Bash" });
 
     const requestId = polled.actions![0].requestId;
 

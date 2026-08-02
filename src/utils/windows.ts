@@ -233,23 +233,3 @@ export function checkWindowsBashAvailability(): void {
       `  See README.md "Windows Support" section for MCP client config examples.`
   );
 }
-
-const WINDOWS_BASH_HINT =
-  "\n\n[Windows] The Claude Code CLI requires Git Bash. " +
-  "Set CLAUDE_CODE_GIT_BASH_PATH in your MCP server config or system environment. " +
-  'See README.md "Windows Support" section for details.';
-
-/**
- * If the error looks like a Windows bash.exe issue, append a helpful hint.
- */
-export function enhanceWindowsError(errorMessage: string): string {
-  if (!isWindows()) return errorMessage;
-  const lower = errorMessage.toLowerCase();
-  const looksLikeMissingBash =
-    (lower.includes("enoent") && (lower.includes("bash") || lower.includes("git-bash"))) ||
-    lower.includes("claude code on windows requires git-bash");
-  if (looksLikeMissingBash || lower.includes("claude_code_git_bash_path")) {
-    return errorMessage + WINDOWS_BASH_HINT;
-  }
-  return errorMessage;
-}

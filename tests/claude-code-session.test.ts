@@ -33,13 +33,13 @@ describe("claude_code_session tool", () => {
     it("should return error without sessionId", () => {
       const result = executeClaudeCodeSession({ action: "get" }, manager);
       expect(result.isError).toBe(true);
-      expect(result.message).toContain("INVALID_ARGUMENT");
+      expect(result.error?.code).toBe("INVALID_ARGUMENT");
     });
 
     it("should return error for non-existent session", () => {
       const result = executeClaudeCodeSession({ action: "get", sessionId: "nope" }, manager);
       expect(result.isError).toBe(true);
-      expect(result.message).toContain("SESSION_NOT_FOUND");
+      expect(result.error?.code).toBe("SESSION_NOT_FOUND");
     });
 
     it("should return session info", () => {
@@ -152,7 +152,7 @@ describe("claude_code_session tool", () => {
     it("should return error without sessionId", () => {
       const result = executeClaudeCodeSession({ action: "cancel" }, manager);
       expect(result.isError).toBe(true);
-      expect(result.message).toContain("INVALID_ARGUMENT");
+      expect(result.error?.code).toBe("INVALID_ARGUMENT");
     });
 
     it("should cancel a running session", () => {
@@ -170,7 +170,7 @@ describe("claude_code_session tool", () => {
     it("should return error for non-existent session", () => {
       const result = executeClaudeCodeSession({ action: "cancel", sessionId: "nope" }, manager);
       expect(result.isError).toBe(true);
-      expect(result.message).toContain("SESSION_NOT_FOUND");
+      expect(result.error?.code).toBe("SESSION_NOT_FOUND");
     });
   });
 
@@ -178,7 +178,7 @@ describe("claude_code_session tool", () => {
     it("should return error without sessionId", () => {
       const result = executeClaudeCodeSession({ action: "interrupt" }, manager);
       expect(result.isError).toBe(true);
-      expect(result.message).toContain("INVALID_ARGUMENT");
+      expect(result.error?.code).toBe("INVALID_ARGUMENT");
     });
 
     it("should interrupt a running session without cancelling it", () => {
@@ -239,7 +239,7 @@ describe("claude_code_session tool", () => {
     it("should return error for non-existent session", () => {
       const result = executeClaudeCodeSession({ action: "interrupt", sessionId: "nope" }, manager);
       expect(result.isError).toBe(true);
-      expect(result.message).toContain("SESSION_NOT_FOUND");
+      expect(result.error?.code).toBe("SESSION_NOT_FOUND");
     });
 
     it("should return error for non-running session", () => {
@@ -251,7 +251,7 @@ describe("claude_code_session tool", () => {
         manager
       );
       expect(result.isError).toBe(true);
-      expect(result.message).toContain("not running");
+      expect(result.error?.message).toContain("not running");
     });
   });
 
@@ -262,7 +262,7 @@ describe("claude_code_session tool", () => {
         manager
       );
       expect(result.isError).toBe(true);
-      expect(result.message).toContain("INVALID_ARGUMENT");
+      expect(result.error?.code).toBe("INVALID_ARGUMENT");
     });
   });
 });

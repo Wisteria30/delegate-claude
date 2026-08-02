@@ -12,6 +12,7 @@ import type {
   Settings,
   McpServerConfig,
   OutputFormat,
+  PermissionMode,
   SandboxSettings,
   SettingSource,
   SystemPrompt,
@@ -30,6 +31,8 @@ export interface OptionSource {
   tools?: ToolsConfig;
   maxTurns?: number;
   model?: string;
+  permissionMode?: PermissionMode;
+  allowDangerouslySkipPermissions?: boolean;
   systemPrompt?: SystemPrompt;
   agents?: Record<string, AgentDefinition>;
   maxBudgetUsd?: number;
@@ -92,6 +95,9 @@ export function buildOptions(src: OptionSource): Partial<Options> {
   if (src.tools !== undefined) opts.tools = src.tools;
   if (src.maxTurns !== undefined) opts.maxTurns = src.maxTurns;
   if (src.model !== undefined) opts.model = src.model;
+  if (src.permissionMode !== undefined) opts.permissionMode = src.permissionMode;
+  if (src.allowDangerouslySkipPermissions !== undefined)
+    opts.allowDangerouslySkipPermissions = src.allowDangerouslySkipPermissions;
   if (src.systemPrompt !== undefined) opts.systemPrompt = src.systemPrompt;
   if (src.agents !== undefined) opts.agents = src.agents as Options["agents"];
   if (src.maxBudgetUsd !== undefined) opts.maxBudgetUsd = src.maxBudgetUsd;

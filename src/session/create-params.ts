@@ -1,4 +1,3 @@
-import type { PermissionMode } from "../types.js";
 import { DEFAULT_SETTING_SOURCES } from "../types.js";
 import type { OptionSource } from "../utils/build-options.js";
 import type { SessionManager } from "./manager.js";
@@ -10,14 +9,14 @@ export function toSessionCreateParams(input: {
   source: OptionSource;
   abortController: AbortController;
   queryInterrupt?: () => void;
-  permissionMode?: PermissionMode;
 }): SessionCreateParams {
   const src = input.source;
   return {
     sessionId: input.sessionId,
     cwd: src.cwd,
     model: src.model,
-    permissionMode: input.permissionMode,
+    allowDangerouslySkipPermissions: src.allowDangerouslySkipPermissions,
+    permissionMode: src.permissionMode,
     allowedTools: src.allowedTools,
     disallowedTools: src.disallowedTools,
     strictAllowedTools: src.strictAllowedTools,
