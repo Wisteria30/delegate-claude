@@ -120,7 +120,7 @@
 
 下面每个用例都包含：目标、指令模板、通过判据、失败恢复。
 
-### 5.1 用例 A：连接与发现（Smoke）
+### 5.1 用例 A：连接与发现（最小的基本动作确认）
 
 目标：确认 MCP 握手可用，工具和资源可发现。
 
@@ -157,12 +157,12 @@
 - `strictAllowedTools`: `true`（建议开启，确保 `allowedTools` 是严格白名单语义；该参数在 `claude_code` 和 `diskResumeConfig` 中均可用，部分客户端可能不在 UI 中展示但实际可传递）
   - 注意：`strictAllowedTools` 保证执行层拦截（未授权工具的 `tool_use` 会被 server 拒绝），但不保证模型不会先生成未授权工具的调用计划。评估时应以 `permission_result` / 实际执行结果为准，而非模型输出的 `tool_use` 文本。
 - `disallowedTools`: 仅当通过 `includeTools=true` 确认 Bash 在运行时工具列表中时才设置为 `["Bash"]`；否则省略该字段（避免 `Unknown disallowedTools: Bash` 告警）
-- 即使 prompt 中明确要求“不要调用 Bash”，也应以策略约束（`strictAllowedTools` / `allowedTools` / `disallowedTools`）作为主判据（smoke 仅验证基础读写闭环；权限闭环由用例 C 覆盖）
+- 即使 prompt 中明确要求“不要调用 Bash”，也应以策略约束（`strictAllowedTools` / `allowedTools` / `disallowedTools`）作为主判据（最小的基本动作确认仅验证基础读写闭环；权限闭环由用例 C 覆盖）
 
 给模型的任务 prompt 示例：
 
 ```text
-在当前目录创建 mcp_smoke.txt，写入 ok；然后读取并输出该文件内容；最后总结执行步骤。
+在当前目录创建 mcp_basic_check.txt，写入 ok；然后读取并输出该文件内容；最后总结执行步骤。
 Windows 场景重要约束：若你生成的路径包含 /home/ 或其他 POSIX 风格路径，必须先自检并改写为当前 cwd 下的 Windows 绝对路径后再执行。
 ```
 
@@ -171,7 +171,7 @@ Windows 场景重要约束：若你生成的路径包含 /home/ 或其他 POSIX 
 1. `claude_code` 返回 `sessionId` 且 `status=running`。
 2. 轮询最终进入 `idle` 或 `error` 或 `cancelled`。
 3. 终态有 `result`（成功或失败均需有可解释结果）；若失败，记录 `result.errorSubtype`。
-4. 成功路径下，文件 `mcp_smoke.txt` 存在且内容为 `ok`。
+4. 成功路径下，文件 `mcp_basic_check.txt` 存在且内容为 `ok`。
 
 失败恢复：
 
@@ -489,7 +489,7 @@ args = ["-y", "@wisteria30/delegate-claude"]
 #### 模板 2：启动并轮询到终态
 
 ```text
-请调用 claude_code 在当前目录执行一个最小 smoke 任务（创建并读取 mcp_smoke.txt）。
+请调用 claude_code 在当前目录执行最小的基本动作确认任务（创建并读取 mcp_basic_check.txt）。
 调用参数建议包含 strictAllowedTools=true 且 allowedTools 仅保留本轮必需工具。
 随后持续调用 claude_code_check(action=poll) 直到终态。
 每次轮询都要打印 status、nextCursor、actions 数量。
