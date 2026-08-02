@@ -102,9 +102,10 @@ function isWindowsSystemBash(pathLike: string): boolean {
 
 /**
  * Attempt to locate bash.exe on Windows using the same logic as the Claude CLI:
- * 1. Check CLAUDE_CODE_GIT_BASH_PATH env var
- * 2. Find `git` in PATH and derive bash.exe from it
+ * 1. Use CLAUDE_CODE_GIT_BASH_PATH when explicitly configured
+ * 2. Otherwise find `git` in PATH and derive bash.exe from it
  *
+ * An invalid explicit path is authoritative and returns null without discovery.
  * Returns the resolved path, or null if not found.
  */
 export function findGitBash(): string | null {
@@ -113,7 +114,7 @@ export function findGitBash(): string | null {
     // Users sometimes include quotes in JSON/env config.
     const envPath = normalizeMaybeQuotedPath(envPathRaw);
     if (existsPath(envPath)) return envPath;
-    // Env var set but path doesn't exist — continue best-effort detection
+    return null;
   }
 
   // Common Git for Windows install locations (works even if PATH is missing).
@@ -197,6 +198,9 @@ export function checkWindowsBashAvailability(): void {
   const envPath =
     envPathRaw && envPathRaw.trim() !== "" ? normalizeMaybeQuotedPath(envPathRaw) : null;
   const envValid = !!(envPath && existsPath(envPath));
+  if (envPath && !envValid) {
+    throw new Error("CLAUDE_CODE_GIT_BASH_PATH does not point to an existing file.");
+  }
 
   const bashPath = findGitBash();
   if (bashPath) {
@@ -204,11 +208,6 @@ export function checkWindowsBashAvailability(): void {
     // from GUI clients that don't inherit a full PATH environment.
     if (!envValid) {
       process.env.CLAUDE_CODE_GIT_BASH_PATH = bashPath;
-      if (envPathRaw && envPathRaw.trim() !== "") {
-        console.error(
-          `[windows] WARNING: CLAUDE_CODE_GIT_BASH_PATH is set to "${envPathRaw}" but the file does not exist.`
-        );
-      }
       console.error(`[windows] Git Bash detected: ${bashPath} (set CLAUDE_CODE_GIT_BASH_PATH)`);
     } else {
       console.error(`[windows] Git Bash detected: ${bashPath}`);
@@ -216,12 +215,8 @@ export function checkWindowsBashAvailability(): void {
     return;
   }
 
-  const hint = process.env.CLAUDE_CODE_GIT_BASH_PATH
-    ? `CLAUDE_CODE_GIT_BASH_PATH is set to "${process.env.CLAUDE_CODE_GIT_BASH_PATH}" but the file does not exist.`
-    : "CLAUDE_CODE_GIT_BASH_PATH is not set and git was not found in PATH.";
-
   console.error(
-    `[windows] WARNING: ${hint}\n` +
+    `[windows] WARNING: CLAUDE_CODE_GIT_BASH_PATH is not set and git was not found in PATH.\n` +
       `  The Claude Code CLI requires Git Bash on Windows.\n` +
       `  Install Git for Windows (https://git-scm.com/downloads/win) and either:\n` +
       `    1. Add git to PATH, or\n` +

@@ -126,7 +126,7 @@ function startArguments(caseName) {
     return {
       ...base,
       prompt:
-        "Use the Read tool with file_path exactly \"package.json\" to inspect this project, then summarize the scripts section in one sentence. Do not answer from memory; read the file first.",
+        'Use the Read tool with file_path exactly "package.json" to inspect this project, then summarize the scripts section in one sentence. Do not answer from memory; read the file first.',
       cwd,
     };
   }
@@ -436,32 +436,10 @@ async function runCaseIteration(client, caseName, iteration, config) {
     const waitingSetup = await ensureWaitingPermission(client, caseName, config);
     record.waitingSetup = waitingSetup;
     if (!waitingSetup.ok || !waitingSetup.sessionId) {
-      if (waitingSetup.autoApprovalLikely) {
-        record.waitingFallback = {
-          reason:
-            "waiting_permission not observed; runtime appears to auto-approve tool calls. Falling back to running-state race.",
-        };
-        const fallbackCase = caseName.endsWith("interrupt")
-          ? "running-interrupt"
-          : "running-cancel";
-        const fallbackStart = await startSessionWithRetry(client, fallbackCase, config);
-        record.startAttempts = fallbackStart.attempts;
-        record.start = fallbackStart.start;
-        const fallbackSessionId =
-          typeof fallbackStart.start?.sessionId === "string" ? fallbackStart.start.sessionId : "";
-        if (fallbackStart.start.status !== "running" || !fallbackSessionId) {
-          record.failed = true;
-          record.failureStep = "start_fallback";
-          record.endedAt = new Date().toISOString();
-          return record;
-        }
-        sessionId = fallbackSessionId;
-      } else {
-        record.failed = true;
-        record.failureStep = "waiting_permission_not_observed";
-        record.endedAt = new Date().toISOString();
-        return record;
-      }
+      record.failed = true;
+      record.failureStep = "waiting_permission_not_observed";
+      record.endedAt = new Date().toISOString();
+      return record;
     } else {
       record.start = waitingSetup.start;
       sessionId = waitingSetup.sessionId;

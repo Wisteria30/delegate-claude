@@ -435,7 +435,7 @@ Windows 场景重要约束：若你生成的路径包含 /home/ 或其他 POSIX 
    - 运行黑盒回归：`npm run e2e:stdio:reply-race`。
    - 如需自定义轮数或轮询参数，建议直接运行：`node scripts/e2e/stdio-reply-race-regression.mjs --case all --iterations 2 --max-polls 40`。
    - 该回归会覆盖 `running-interrupt`、`running-cancel`、`waiting-permission-interrupt`、`waiting-permission-cancel` 四类场景。
-   - 若 runtime 自动批准工具调用导致无法观测 `waiting_permission`，脚本会记录 `autoApprovalLikely=true` 并自动回退到 running 态并发竞争验证，不判定为失败。
+   - 若 runtime 自动批准工具调用导致无法观测 `waiting_permission`，脚本会记录 `autoApprovalLikely=true` 并以 `waiting_permission_not_observed` 明确失败，不会改测 running 状态。
 
 ---
 

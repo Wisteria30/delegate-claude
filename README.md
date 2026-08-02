@@ -443,7 +443,7 @@ Claude Code on Windows requires git-bash (https://git-scm.com/downloads/win).
 
 This means the spawned CLI process cannot locate `bash.exe`. Your locally installed `claude` command may work fine — the issue is that the MCP server's child process may not inherit your shell environment.
 
-`delegate-claude` will try to auto-detect Git Bash from common install locations and set `CLAUDE_CODE_GIT_BASH_PATH` for child processes. If you still see this error, set `CLAUDE_CODE_GIT_BASH_PATH` explicitly in your MCP server config:
+When `CLAUDE_CODE_GIT_BASH_PATH` is unset, `delegate-claude` tries to auto-detect Git Bash from common install locations and sets the variable for child processes. An explicitly configured path is authoritative: if it does not exist, server startup fails without selecting another installation. Set it in your MCP server config when auto-detection is unreliable:
 
 For JSON-based MCP clients (Claude Desktop, Cursor, etc.):
 

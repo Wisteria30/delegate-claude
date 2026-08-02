@@ -11,7 +11,11 @@ vi.mock("node:child_process", () => ({
 
 import { existsSync } from "node:fs";
 import { execSync } from "node:child_process";
-import { findGitBash, enhanceWindowsError } from "../src/utils/windows.js";
+import {
+  checkWindowsBashAvailability,
+  findGitBash,
+  enhanceWindowsError,
+} from "../src/utils/windows.js";
 
 const existsSyncMock = vi.mocked(existsSync);
 const execSyncMock = vi.mocked(execSync);
@@ -37,6 +41,31 @@ describe("windows utils", () => {
     existsSyncMock.mockImplementation((p) => String(p).includes("bash.exe"));
 
     expect(findGitBash()).toContain("bash.exe");
+    expect(execSyncMock).not.toHaveBeenCalled();
+  });
+
+  it("findGitBash does not search for another path when the explicit path is invalid", () => {
+    process.env.CLAUDE_CODE_GIT_BASH_PATH = "C:\\missing\\bash.exe";
+    process.env.ProgramFiles = "C:\\Program Files";
+    existsSyncMock.mockImplementation((p) =>
+      String(p).replace(/\//g, "\\").endsWith("\\Program Files\\Git\\bin\\bash.exe")
+    );
+
+    expect(findGitBash()).toBeNull();
+    expect(execSyncMock).not.toHaveBeenCalled();
+  });
+
+  it("rejects an invalid explicit path before server startup without replacing it", () => {
+    process.env.CLAUDE_CODE_GIT_BASH_PATH = "C:\\missing\\bash.exe";
+    process.env.ProgramFiles = "C:\\Program Files";
+    existsSyncMock.mockImplementation((p) =>
+      String(p).replace(/\//g, "\\").endsWith("\\Program Files\\Git\\bin\\bash.exe")
+    );
+
+    expect(() => checkWindowsBashAvailability()).toThrow(
+      "CLAUDE_CODE_GIT_BASH_PATH does not point to an existing file."
+    );
+    expect(process.env.CLAUDE_CODE_GIT_BASH_PATH).toBe("C:\\missing\\bash.exe");
     expect(execSyncMock).not.toHaveBeenCalled();
   });
 
@@ -120,6 +149,26 @@ describe("windows utils", () => {
 
     expect(findGitBash()).toBe("C:\\Program Files\\Git\\bin\\bash.exe");
     expect(execSyncMock).not.toHaveBeenCalled();
+  });
+
+  it("exports an auto-detected path when no explicit path is configured", () => {
+    delete process.env.CLAUDE_CODE_GIT_BASH_PATH;
+    process.env.ProgramFiles = "C:\\Program Files";
+    delete process.env.ProgramW6432;
+    delete process.env["ProgramFiles(x86)"];
+    existsSyncMock.mockImplementation((p) => {
+      const candidate = String(p).replace(/\//g, "\\");
+      return candidate === "C:\\Program Files\\Git\\bin\\bash.exe";
+    });
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => undefined);
+
+    checkWindowsBashAvailability();
+
+    expect(process.env.CLAUDE_CODE_GIT_BASH_PATH).toBe("C:\\Program Files\\Git\\bin\\bash.exe");
+    expect(consoleError).toHaveBeenCalledWith(
+      "[windows] Git Bash detected: C:\\Program Files\\Git\\bin\\bash.exe (set CLAUDE_CODE_GIT_BASH_PATH)"
+    );
+    consoleError.mockRestore();
   });
 
   it("enhanceWindowsError appends hint for bash-related errors", () => {

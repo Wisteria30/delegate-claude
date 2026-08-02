@@ -133,7 +133,10 @@ async function runIteration(client, i, config) {
 
   const sessionId = started.sessionId;
   let cursor;
-  if (config.mode === "waiting-permission-cancel" || config.mode === "waiting-permission-interrupt") {
+  if (
+    config.mode === "waiting-permission-cancel" ||
+    config.mode === "waiting-permission-interrupt"
+  ) {
     const polled = await pollUntilWaitingOrTerminal(client, sessionId, config);
     record.preCancelPoll = polled;
     cursor = polled.cursor;
@@ -162,16 +165,6 @@ async function runIteration(client, i, config) {
   record.actionResult = actionResult;
   record.pollAfterAction = pollAfterAction;
   record.sessionListAfterAction = sessionListAfterAction;
-  // Backward-compatible field aliases retained for existing consumers.
-  if (sessionAction === "cancel") {
-    record.cancel = actionResult;
-    record.pollAfterCancel = pollAfterAction;
-    record.sessionListAfterCancel = sessionListAfterAction;
-  } else {
-    record.interrupt = actionResult;
-    record.pollAfterInterrupt = pollAfterAction;
-    record.sessionListAfterInterrupt = sessionListAfterAction;
-  }
 
   const resources = await client.listResources();
   record.resourcesAfterCancel = resources.resources.map((r) => r.uri);
