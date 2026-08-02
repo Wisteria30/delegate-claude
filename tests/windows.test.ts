@@ -11,11 +11,7 @@ vi.mock("node:child_process", () => ({
 
 import { existsSync } from "node:fs";
 import { execSync } from "node:child_process";
-import {
-  checkWindowsBashAvailability,
-  findGitBash,
-  enhanceWindowsError,
-} from "../src/utils/windows.js";
+import { checkWindowsBashAvailability, findGitBash } from "../src/utils/windows.js";
 
 const existsSyncMock = vi.mocked(existsSync);
 const execSyncMock = vi.mocked(execSync);
@@ -171,17 +167,5 @@ describe("windows utils", () => {
     );
     expect(execSyncMock).not.toHaveBeenCalled();
     consoleError.mockRestore();
-  });
-
-  it("enhanceWindowsError appends hint for bash-related errors", () => {
-    const msg = enhanceWindowsError("spawn bash.exe ENOENT");
-    expect(msg).toContain("Git Bash");
-    expect(msg).toContain("CLAUDE_CODE_GIT_BASH_PATH");
-  });
-
-  it("enhanceWindowsError appends hint for 'spawn bash ENOENT' errors", () => {
-    const msg = enhanceWindowsError("Error: spawn bash ENOENT");
-    expect(msg).toContain("Git Bash");
-    expect(msg).toContain("CLAUDE_CODE_GIT_BASH_PATH");
   });
 });

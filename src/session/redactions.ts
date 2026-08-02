@@ -18,17 +18,24 @@ const CONDITIONAL_REDACTED_FIELDS = [
   "toolConfig",
 ] as const;
 
+type Redactions = NonNullable<PublicSessionInfo["redactions"]>;
+
+/** Both variants are constant for the process lifetime and are only ever serialized. */
+const SENSITIVE_INCLUDED_REDACTIONS: Redactions = ALWAYS_REDACTED_FIELDS.map((field) => ({
+  field,
+  reason: "secret_or_internal",
+}));
+
+const DEFAULT_REDACTIONS: Redactions = [
+  ...SENSITIVE_INCLUDED_REDACTIONS,
+  ...CONDITIONAL_REDACTED_FIELDS.map((field) => ({
+    field,
+    reason: "sensitive_by_default" as const,
+  })),
+];
+
 export function buildSessionRedactions(
   includeSensitive?: boolean
 ): PublicSessionInfo["redactions"] {
-  const redactions: NonNullable<PublicSessionInfo["redactions"]> = [];
-  for (const field of ALWAYS_REDACTED_FIELDS) {
-    redactions.push({ field, reason: "secret_or_internal" });
-  }
-  if (!includeSensitive) {
-    for (const field of CONDITIONAL_REDACTED_FIELDS) {
-      redactions.push({ field, reason: "sensitive_by_default" });
-    }
-  }
-  return redactions;
+  return includeSensitive ? SENSITIVE_INCLUDED_REDACTIONS : DEFAULT_REDACTIONS;
 }

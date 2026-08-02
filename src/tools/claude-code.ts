@@ -13,7 +13,6 @@ import type {
   ThinkingConfig,
   ToolConfig,
   PermissionMode,
-  StructuredError,
 } from "../types.js";
 import { ErrorCode, DEFAULT_POLL_INTERVAL_RUNNING_MS } from "../types.js";
 import { consumeQuery } from "./query-consumer.js";
@@ -26,11 +25,9 @@ import { normalizeWindowsPathLike } from "../utils/normalize-windows-path.js";
 import { resolveExplicitClaudeExecutable } from "../utils/claude-executable.js";
 import { normalizeAndAssertWorkingDirectory } from "../utils/working-directory.js";
 import { validatePermissionMode } from "../utils/permission-mode.js";
-import {
-  classifySdkStartError,
-  structuredError,
-  toStructuredError,
-} from "../utils/structured-error.js";
+import { classifySdkStartError, toStructuredError } from "../utils/structured-error.js";
+import type { StartErrorResult } from "./start-result.js";
+import { startError, startErrorFrom } from "./start-result.js";
 
 /**
  * Low-frequency / SDK-passthrough options grouped under `advanced`.
@@ -81,9 +78,7 @@ export interface ClaudeCodeInput {
   advanced?: ClaudeCodeAdvancedOptions;
 }
 
-export type ClaudeCodeStartResult =
-  | SessionStartResult
-  | { sessionId: string; status: "error"; error: StructuredError };
+export type ClaudeCodeStartResult = SessionStartResult | StartErrorResult;
 
 export async function executeClaudeCode(
   input: ClaudeCodeInput,
@@ -96,11 +91,7 @@ export async function executeClaudeCode(
   const cwd = cwdProvided ? input.cwd : serverCwd;
 
   if (typeof cwd !== "string" || cwd.trim() === "") {
-    return {
-      sessionId: "",
-      status: "error",
-      error: structuredError(ErrorCode.INVALID_ARGUMENT, "cwd must be a non-empty string."),
-    };
+    return startError("", ErrorCode.INVALID_ARGUMENT, "cwd must be a non-empty string.");
   }
   let normalizedCwd: string;
   if (cwdProvided) {
@@ -110,25 +101,18 @@ export async function executeClaudeCode(
       // Intentional: only Errors become a tool-level cwd failure. A non-Error throw is not a cwd
       // verdict, so it keeps escaping to the server boundary, which classifies it as INTERNAL.
       if (!(err instanceof Error)) throw err;
-      return {
-        sessionId: "",
-        status: "error",
-        error: toStructuredError(err, ErrorCode.INTERNAL),
-      };
+      return startErrorFrom("", toStructuredError(err, ErrorCode.INTERNAL));
     }
   } else {
     normalizedCwd = normalizeWindowsPathLike(cwd);
   }
 
   if (!sessionManager.hasCapacityFor(1)) {
-    return {
-      sessionId: "",
-      status: "error",
-      error: structuredError(
-        ErrorCode.RESOURCE_EXHAUSTED,
-        `Too many sessions (limit: ${sessionManager.getMaxSessions()}).`
-      ),
-    };
+    return startError(
+      "",
+      ErrorCode.RESOURCE_EXHAUSTED,
+      `Too many sessions (limit: ${sessionManager.getMaxSessions()}).`
+    );
   }
 
   const abortController = new AbortController();
@@ -144,7 +128,7 @@ export async function executeClaudeCode(
       input.allowDangerouslySkipPermissions
     );
   } catch (err: unknown) {
-    return { sessionId: "", status: "error", error: toStructuredError(err, ErrorCode.INTERNAL) };
+    return startErrorFrom("", toStructuredError(err, ErrorCode.INTERNAL));
   }
 
   // Flatten top-level + advanced into a single object for buildOptions / sessionManager.
@@ -188,7 +172,6 @@ export async function executeClaudeCode(
           toSessionCreateParams({
             sessionId: init.session_id,
             source: normalizedFlat,
-            permissionMode: permission.permissionMode,
             abortController,
             queryInterrupt: () => {
               handle.interrupt();
@@ -214,10 +197,6 @@ export async function executeClaudeCode(
       resumeToken: resumeSecret ? computeResumeToken(sessionId, resumeSecret) : undefined,
     };
   } catch (err: unknown) {
-    return {
-      sessionId: "",
-      status: "error",
-      error: classifySdkStartError(err, input.model),
-    };
+    return startErrorFrom("", classifySdkStartError(err, input.model));
   }
 }

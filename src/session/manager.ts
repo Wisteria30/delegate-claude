@@ -26,6 +26,7 @@ import {
 import { formatStructuredError, structuredError } from "../utils/structured-error.js";
 import { normalizeToolInput } from "../utils/normalize-tool-input.js";
 import { findUnsupportedPosixPathInToolInput } from "../utils/normalize-windows-path.js";
+import { normalizeToolPolicyNames } from "../utils/tool-policy.js";
 
 const DEFAULT_SESSION_TTL_MS = 30 * 60 * 1000; // 30 minutes idle timeout
 const DEFAULT_RUNNING_SESSION_MAX_MS = 4 * 60 * 60 * 1000; // 4 hours max for running sessions
@@ -53,14 +54,6 @@ function byCreatedAt(a: { createdAt: string }, b: { createdAt: string }): number
   return a.createdAt < b.createdAt ? -1 : a.createdAt > b.createdAt ? 1 : 0;
 }
 
-function normalizeToolPolicyNames(values: string[] | undefined): string[] {
-  if (!Array.isArray(values) || values.length === 0) return [];
-  return values
-    .filter((value): value is string => typeof value === "string")
-    .map((value) => value.trim())
-    .filter((value) => value !== "");
-}
-
 /** A caller action the session is blocked on, keyed by requestId in the runtime maps. */
 type PendingRequest<TRecord = unknown> = {
   record: TRecord;
@@ -75,8 +68,6 @@ type SessionRuntimeState = {
   buffer: EventBuffer;
   pendingPermissions: Map<string, PendingPermission>;
   pendingUserQuestions: Map<string, PendingUserQuestion>;
-  /** Built once per session; `pushEvent` runs on every event, eviction rarely. */
-  isPendingRequest: (requestId: string) => boolean;
   storedResult?: StoredAgentResult;
   terminalError?: StructuredError;
   initTools?: string[];
@@ -292,8 +283,6 @@ export class SessionManager {
       },
       pendingPermissions: new Map(),
       pendingUserQuestions: new Map(),
-      isPendingRequest: (requestId) =>
-        state.pendingPermissions.has(requestId) || state.pendingUserQuestions.has(requestId),
     };
     this.runtime.set(params.sessionId, state);
     return info;
@@ -481,7 +470,7 @@ export class SessionManager {
     if (this.destroyed) return undefined;
     const state = this.runtime.get(sessionId);
     if (!state) return undefined;
-    const full = SessionManager.pushEvent(state.buffer, event, state.isPendingRequest);
+    const full = SessionManager.pushEvent(state, event);
     const info = this.sessions.get(sessionId);
     if (info) {
       info.lastActiveAt = new Date().toISOString();
@@ -1126,11 +1115,16 @@ export class SessionManager {
     this.destroyed = true;
   }
 
+  /** A pending request's events stay pinned until the request itself is resolved. */
+  private static isPendingRequest(state: SessionRuntimeState, requestId: string): boolean {
+    return state.pendingPermissions.has(requestId) || state.pendingUserQuestions.has(requestId);
+  }
+
   private static pushEvent(
-    buffer: EventBuffer,
-    event: Omit<SessionEvent, "id" | "pinned"> & { pinned?: boolean },
-    isActivePermissionRequest?: (requestId: string) => boolean
+    state: SessionRuntimeState,
+    event: Omit<SessionEvent, "id" | "pinned"> & { pinned?: boolean }
   ): SessionEvent {
+    const buffer = state.buffer;
     const pinned =
       event.pinned ??
       (event.type === "permission_request" ||
@@ -1150,15 +1144,13 @@ export class SessionManager {
 
     buffer.events.push(full);
 
-    SessionManager.evictEventsToLimits(buffer, isActivePermissionRequest);
+    SessionManager.evictEventsToLimits(state);
 
     return full;
   }
 
-  private static evictEventsToLimits(
-    buffer: EventBuffer,
-    isActivePermissionRequest?: (requestId: string) => boolean
-  ): void {
+  private static evictEventsToLimits(state: SessionRuntimeState): void {
+    const buffer = state.buffer;
     if (buffer.events.length <= buffer.maxSize && buffer.events.length <= buffer.hardMaxSize) {
       return;
     }
@@ -1187,7 +1179,7 @@ export class SessionManager {
       if (event.type !== "permission_request" && event.type !== "user_question") return false;
       const requestId = (event.data as { requestId?: unknown } | null)?.requestId;
       if (typeof requestId !== "string") return true;
-      return isActivePermissionRequest ? !isActivePermissionRequest(requestId) : true;
+      return !SessionManager.isPendingRequest(state, requestId);
     };
 
     const isNoisyProgressEvent = (event: SessionEvent): boolean => {

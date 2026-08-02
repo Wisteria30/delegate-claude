@@ -10,6 +10,7 @@ import { executeClaudeCodeCheck } from "./tools/claude-code-check.js";
 import { executeClaudeCodeSession } from "./tools/claude-code-session.js";
 import { buildInternalToolsDescription, ToolDiscoveryCache } from "./tools/tool-discovery.js";
 import { registerResources } from "./resources/register-resources.js";
+import type { StructuredError } from "./types.js";
 import {
   EFFORT_LEVELS,
   CHECK_ACTIONS,
@@ -19,6 +20,10 @@ import {
   ErrorCode as LocalErrorCode,
 } from "./types.js";
 import { structuredError } from "./utils/structured-error.js";
+
+/** The single tool-boundary classification: never leak an unexpected throw's message to callers. */
+const internalFailure = (): StructuredError =>
+  structuredError(LocalErrorCode.INTERNAL, "Unexpected internal failure.");
 
 declare const __PKG_VERSION__: string;
 const SERVER_VERSION = typeof __PKG_VERSION__ !== "undefined" ? __PKG_VERSION__ : "0.0.0-dev";
@@ -440,7 +445,7 @@ export function createServerContext(serverCwd: string): {
         const errorResult = {
           sessionId: "",
           status: "error" as const,
-          error: structuredError(LocalErrorCode.INTERNAL, "Unexpected internal failure."),
+          error: internalFailure(),
         };
         return toToolResponse(errorResult, true);
       }
@@ -512,7 +517,7 @@ export function createServerContext(serverCwd: string): {
         const errorResult = {
           sessionId: "",
           status: "error" as const,
-          error: structuredError(LocalErrorCode.INTERNAL, "Unexpected internal failure."),
+          error: internalFailure(),
         };
         return toToolResponse(errorResult, true);
       }
@@ -551,7 +556,7 @@ export function createServerContext(serverCwd: string): {
       } catch {
         const errorResult = {
           sessions: [],
-          error: structuredError(LocalErrorCode.INTERNAL, "Unexpected internal failure."),
+          error: internalFailure(),
           isError: true,
         };
         return toToolResponse(errorResult, true);
@@ -708,7 +713,7 @@ export function createServerContext(serverCwd: string): {
           status: "error",
           events: [] as unknown[],
           isError: true,
-          error: structuredError(LocalErrorCode.INTERNAL, "Unexpected internal failure."),
+          error: internalFailure(),
         };
         return toToolResponse(errorResult, true);
       }

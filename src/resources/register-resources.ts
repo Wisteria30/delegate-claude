@@ -76,7 +76,11 @@ function extractSingleVariable(value: string | string[] | null | undefined): str
 }
 
 /** Static error catalog served by the `errors` resource (constant for the process lifetime). */
-const ERROR_CATALOG = {
+const ERROR_CATALOG: {
+  codes: ErrorCode[];
+  hints: Record<ErrorCode, string>;
+  recoverable: Record<string, boolean>;
+} = {
   codes: Object.values(ErrorCode),
   hints: {
     [ErrorCode.INVALID_ARGUMENT]: "Validate required fields and enum values.",

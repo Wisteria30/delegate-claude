@@ -22,6 +22,7 @@ import type {
 import { DEFAULT_USER_QUESTION_TIMEOUT_MS, ErrorCode } from "../types.js";
 import { normalizePermissionUpdatedInput } from "../utils/permission-updated-input.js";
 import { normalizeToolInput } from "../utils/normalize-tool-input.js";
+import { normalizeToolPolicyNames } from "../utils/tool-policy.js";
 import {
   findUnsupportedPosixPathInToolInput,
   isUnsupportedPosixAbsolutePath,
@@ -29,6 +30,7 @@ import {
 import type { ToolDiscoveryCache } from "./tool-discovery.js";
 import {
   classifySdkStartError,
+  DelegateError,
   formatStructuredError,
   structuredError,
 } from "../utils/structured-error.js";
@@ -137,14 +139,6 @@ function describeTool(toolName: string, toolCache?: ToolDiscoveryCache): string 
   return found?.description;
 }
 
-function normalizePolicyToolNames(tools: string[] | undefined): string[] {
-  if (!Array.isArray(tools) || tools.length === 0) return [];
-  return tools
-    .filter((tool): tool is string => typeof tool === "string")
-    .map((tool) => tool.trim())
-    .filter((tool) => tool !== "");
-}
-
 /**
  * Evaluate the session's hard tool policy once, returning both the denial (if any)
  * and the normalized allowlist so callers do not re-normalize it.
@@ -153,10 +147,10 @@ function evaluateToolPolicy(
   session: SessionInfo | undefined,
   normalizedToolName: string
 ): { denial?: Extract<PermissionResult, { behavior: "deny" }>; allowedTools: string[] } {
-  const allowedTools = normalizePolicyToolNames(session?.allowedTools);
+  const allowedTools = normalizeToolPolicyNames(session?.allowedTools);
   if (!session || normalizedToolName === "") return { allowedTools };
 
-  const disallowedTools = normalizePolicyToolNames(session.disallowedTools);
+  const disallowedTools = normalizeToolPolicyNames(session.disallowedTools);
   if (disallowedTools.includes(normalizedToolName)) {
     return {
       denial: {
@@ -695,9 +689,8 @@ export function consumeQuery(params: ConsumeQueryParams): ConsumeQueryHandle {
     }
 
     const requestId = newRequestId(options.toolUseID, toolName);
-    const createdAt = new Date().toISOString();
-    const timeoutMs = permissionRequestTimeoutMs;
-    const expiresAt = new Date(Date.now() + timeoutMs).toISOString();
+    // `timeoutMs`/`expiresAt` are owned by SessionManager, which holds the timer and
+    // stamps both when the request is registered.
     const record: PermissionRequestRecord = {
       requestId,
       toolName,
@@ -711,9 +704,7 @@ export function consumeQuery(params: ConsumeQueryParams): ConsumeQueryHandle {
       toolUseID: options.toolUseID,
       agentID: options.agentID,
       suggestions: options.suggestions,
-      createdAt,
-      timeoutMs,
-      expiresAt,
+      createdAt: new Date().toISOString(),
     };
 
     return await awaitPendingDecision({
@@ -740,9 +731,7 @@ export function consumeQuery(params: ConsumeQueryParams): ConsumeQueryHandle {
     if (
       hookInput.hook_event_name !== "PreToolUse" ||
       hookInput.tool_name !== "AskUserQuestion" ||
-      !hookInput.tool_input ||
-      typeof hookInput.tool_input !== "object" ||
-      Array.isArray(hookInput.tool_input)
+      !isPlainObject(hookInput.tool_input)
     ) {
       return {};
     }
@@ -762,7 +751,7 @@ export function consumeQuery(params: ConsumeQueryParams): ConsumeQueryHandle {
     const requestId = newRequestId(effectiveToolUseId, "user-question");
     const result = await waitForUserQuestion(
       sessionId,
-      hookInput.tool_input as Record<string, unknown>,
+      hookInput.tool_input,
       effectiveToolUseId,
       requestId,
       hookOptions.signal
@@ -838,12 +827,10 @@ export function consumeQuery(params: ConsumeQueryParams): ConsumeQueryHandle {
       initTimeoutId = setTimeout(() => {
         close();
         rejectSessionId(
-          new Error(
-            formatStructuredError(
-              structuredError(
-                ErrorCode.SDK_START_FAILED,
-                `Session init timed out after ${params.sessionInitTimeoutMs}ms.`
-              )
+          new DelegateError(
+            structuredError(
+              ErrorCode.SDK_START_FAILED,
+              `Session init timed out after ${params.sessionInitTimeoutMs}ms.`
             )
           )
         );
@@ -984,12 +971,10 @@ export function consumeQuery(params: ConsumeQueryParams): ConsumeQueryHandle {
         // Stream ended normally. If no result was received, convert to an explicit error.
         if (shouldWaitForInit && !sessionIdResolved) {
           rejectSessionId(
-            new Error(
-              formatStructuredError(
-                structuredError(
-                  ErrorCode.SDK_PROTOCOL_ERROR,
-                  "Query stream ended before receiving session init."
-                )
+            new DelegateError(
+              structuredError(
+                ErrorCode.SDK_PROTOCOL_ERROR,
+                "Query stream ended before receiving session init."
               )
             )
           );
@@ -1040,7 +1025,7 @@ export function consumeQuery(params: ConsumeQueryParams): ConsumeQueryHandle {
             errClass === "abort"
               ? structuredError(ErrorCode.CANCELLED, "Session was cancelled before init.")
               : classifySdkStartError(err, params.options.model);
-          rejectSessionId(new Error(formatStructuredError(error)));
+          rejectSessionId(new DelegateError(error));
           return;
         }
 
