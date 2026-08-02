@@ -18,12 +18,9 @@ import { consumeQuery } from "./query-consumer.js";
 import type { ToolDiscoveryCache } from "./tool-discovery.js";
 import { computeResumeToken, getResumeSecret } from "../utils/resume-token.js";
 import { raceWithAbort } from "../utils/race-with-abort.js";
-import { buildOptions } from "../utils/build-options.js";
+import { buildOptions, normalizeOptionSourcePaths } from "../utils/build-options.js";
 import { toSessionCreateParams } from "../session/create-params.js";
-import {
-  normalizeWindowsPathArray,
-  normalizeWindowsPathLike,
-} from "../utils/normalize-windows-path.js";
+import { normalizeWindowsPathLike } from "../utils/normalize-windows-path.js";
 import { resolveExplicitClaudeExecutable } from "../utils/claude-executable.js";
 import { normalizeAndAssertWorkingDirectory } from "../utils/working-directory.js";
 import { toToolErrorText } from "../utils/tool-error.js";
@@ -101,6 +98,8 @@ export async function executeClaudeCode(
     try {
       normalizedCwd = normalizeAndAssertWorkingDirectory(cwd, "cwd", "preserve");
     } catch (err: unknown) {
+      // Intentional: only Errors become a tool-level cwd failure. A non-Error throw is not a cwd
+      // verdict, so it keeps escaping to the server boundary, which classifies it as INTERNAL.
       if (!(err instanceof Error)) throw err;
       return {
         sessionId: "",
@@ -142,12 +141,7 @@ export async function executeClaudeCode(
   try {
     const normalizedFlat = {
       ...flat,
-      additionalDirectories:
-        flat.additionalDirectories !== undefined
-          ? normalizeWindowsPathArray(flat.additionalDirectories)
-          : undefined,
-      debugFile:
-        flat.debugFile !== undefined ? normalizeWindowsPathLike(flat.debugFile) : undefined,
+      ...normalizeOptionSourcePaths(flat),
       pathToClaudeCodeExecutable:
         flat.pathToClaudeCodeExecutable !== undefined
           ? resolveExplicitClaudeExecutable(flat.pathToClaudeCodeExecutable, normalizedCwd)

@@ -26,13 +26,9 @@ import {
   isValidResumeToken,
 } from "../utils/resume-token.js";
 import { raceWithAbort } from "../utils/race-with-abort.js";
-import { buildOptions } from "../utils/build-options.js";
+import { buildOptions, normalizeOptionSourcePaths } from "../utils/build-options.js";
 import type { OptionSource } from "../utils/build-options.js";
 import { toSessionCreateParams } from "../session/create-params.js";
-import {
-  normalizeWindowsPathArray,
-  normalizeWindowsPathLike,
-} from "../utils/normalize-windows-path.js";
 import { resolveExplicitClaudeExecutable } from "../utils/claude-executable.js";
 import { normalizeAndAssertWorkingDirectory } from "../utils/working-directory.js";
 import { toToolErrorText } from "../utils/tool-error.js";
@@ -137,16 +133,13 @@ function buildDiskResumeSource(
     dr.pathToClaudeCodeExecutable !== undefined
       ? resolveExplicitClaudeExecutable(dr.pathToClaudeCodeExecutable, normalizedCwd)
       : undefined;
+  // Drop the resume secret so it never reaches the session record or the SDK options.
   const { resumeToken: _resumeToken, ...source } = dr;
   void _resumeToken;
   const normalizedSource: OptionSource = {
     ...source,
+    ...normalizeOptionSourcePaths(source),
     cwd: normalizedCwd,
-    additionalDirectories:
-      dr.additionalDirectories !== undefined
-        ? normalizeWindowsPathArray(dr.additionalDirectories)
-        : undefined,
-    debugFile: dr.debugFile !== undefined ? normalizeWindowsPathLike(dr.debugFile) : undefined,
     pathToClaudeCodeExecutable,
   };
   if (overrides.effort !== undefined) normalizedSource.effort = overrides.effort;
@@ -319,7 +312,7 @@ export async function executeClaudeCodeReply(
     return {
       sessionId: input.sessionId,
       status: "error",
-      error: toStartError(input.sessionId, err).errorText,
+      error: toToolErrorText(err),
     };
   }
 

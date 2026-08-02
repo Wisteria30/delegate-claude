@@ -48,7 +48,7 @@ function readTarEntries(tarballPath) {
 
     // ustar fields are NUL-padded; everything before the first NUL is the value.
     const readString = (start, length) =>
-      header.toString("utf8", start, start + length).split("\0")[0];
+      header.toString("utf8", start, start + length).split("\0", 1)[0];
     const name = readString(0, 100);
     const prefix = readString(345, 155);
     const entryPath = prefix ? `${prefix}/${name}` : name;
@@ -104,12 +104,9 @@ function verifyTarball(tarballPath) {
       EXPECTED_NODE_SHEBANG,
     "tarball executable entry is missing the Node.js shebang required by npm bin shims"
   );
-  const executableProof =
-    process.platform === "win32"
-      ? "npm-bin-mapping-and-node-shebang"
-      : "tar-executable-mode-and-node-shebang";
   // Windows npm shims use the exact bin mapping and Node shebang; POSIX launch also needs mode bits.
-  if (process.platform !== "win32") {
+  const isWindows = process.platform === "win32";
+  if (!isWindows) {
     assert((executable.mode & 0o111) !== 0, "tarball executable entry is not executable");
   }
   assert(license.includes(UPSTREAM_COPYRIGHT), "tarball LICENSE lost the upstream copyright");
@@ -120,7 +117,9 @@ function verifyTarball(tarballPath) {
     packageName: packageJson.name,
     executablePath: packageJson.bin[EXPECTED_EXECUTABLE_NAME],
     executableMode: executable.mode,
-    executableProof,
+    executableProof: isWindows
+      ? "npm-bin-mapping-and-node-shebang"
+      : "tar-executable-mode-and-node-shebang",
   };
 }
 
@@ -133,18 +132,14 @@ function main() {
   try {
     const packed = runNpmPack(["--pack-destination", packDirectory]);
     assert(packed.name === dryRun.name, "dry-run and tarball package names differ");
-    const { packageName, executablePath, executableMode, executableProof } = verifyTarball(
-      path.join(packDirectory, packed.filename)
-    );
+    const { packageName, ...tarball } = verifyTarball(path.join(packDirectory, packed.filename));
     process.stdout.write(
       `${JSON.stringify(
         {
           ok: true,
           package: packageName,
           executable: EXPECTED_EXECUTABLE_NAME,
-          executablePath,
-          executableMode,
-          executableProof,
+          ...tarball,
           files: packed.entryCount,
           licenseNotice: UPSTREAM_COPYRIGHT,
         },
