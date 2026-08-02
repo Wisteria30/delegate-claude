@@ -2,11 +2,11 @@ import { ResourceTemplate, type McpServer } from "@modelcontextprotocol/sdk/serv
 import type { ReadResourceResult } from "@modelcontextprotocol/sdk/types.js";
 import { createHash } from "node:crypto";
 import type { SessionManager } from "../session/manager.js";
+import { buildSessionRedactions } from "../session/redactions.js";
 import {
   ErrorCode,
   DEFAULT_POLL_INTERVAL_RUNNING_MS,
   DEFAULT_POLL_INTERVAL_WAITING_MS,
-  type PublicSessionInfo,
 } from "../types.js";
 import {
   defaultCatalogTools,
@@ -71,27 +71,6 @@ function extractSingleVariable(value: string | string[] | null | undefined): str
   if (Array.isArray(value) && typeof value[0] === "string" && value[0].trim() !== "")
     return value[0];
   return undefined;
-}
-
-function buildSessionRedactions(includeSensitive: boolean): PublicSessionInfo["redactions"] {
-  const redactions: PublicSessionInfo["redactions"] = [
-    { field: "env", reason: "secret_or_internal" },
-    { field: "mcpServers", reason: "secret_or_internal" },
-    { field: "sandbox", reason: "secret_or_internal" },
-    { field: "settings", reason: "secret_or_internal" },
-    { field: "debugFile", reason: "secret_or_internal" },
-    { field: "pathToClaudeCodeExecutable", reason: "secret_or_internal" },
-  ];
-  if (!includeSensitive) {
-    redactions.push(
-      { field: "cwd", reason: "sensitive_by_default" },
-      { field: "systemPrompt", reason: "sensitive_by_default" },
-      { field: "agents", reason: "sensitive_by_default" },
-      { field: "additionalDirectories", reason: "sensitive_by_default" },
-      { field: "toolConfig", reason: "sensitive_by_default" }
-    );
-  }
-  return redactions;
 }
 
 function buildGotchasEntries(): GotchaEntry[] {

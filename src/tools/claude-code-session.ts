@@ -2,6 +2,7 @@
  * claude_code_session tool - Manage sessions (list, get, cancel, interrupt)
  */
 import type { SessionManager } from "../session/manager.js";
+import { buildSessionRedactions } from "../session/redactions.js";
 import type {
   PublicSessionInfo,
   SensitiveSessionInfo,
@@ -20,36 +21,6 @@ export interface SessionResult {
   sessions: Array<PublicSessionInfo | SensitiveSessionInfo>;
   message?: string;
   isError?: boolean;
-}
-
-const ALWAYS_REDACTED_FIELDS = [
-  "env",
-  "mcpServers",
-  "sandbox",
-  "settings",
-  "debugFile",
-  "pathToClaudeCodeExecutable",
-] as const;
-
-const CONDITIONAL_REDACTED_FIELDS = [
-  "cwd",
-  "systemPrompt",
-  "agents",
-  "additionalDirectories",
-  "toolConfig",
-] as const;
-
-function buildRedactions(includeSensitive?: boolean): PublicSessionInfo["redactions"] {
-  const redactions: PublicSessionInfo["redactions"] = [];
-  for (const field of ALWAYS_REDACTED_FIELDS) {
-    redactions?.push({ field, reason: "secret_or_internal" });
-  }
-  if (!includeSensitive) {
-    for (const field of CONDITIONAL_REDACTED_FIELDS) {
-      redactions?.push({ field, reason: "sensitive_by_default" });
-    }
-  }
-  return redactions;
 }
 
 export function executeClaudeCodeSession(
@@ -81,7 +52,7 @@ export function executeClaudeCodeSession(
       ttlMs: sessionManager.getRemainingTtlMs(s.sessionId),
       lastError,
       lastErrorAt,
-      redactions: buildRedactions(input.includeSensitive),
+      redactions: buildSessionRedactions(input.includeSensitive),
     };
   };
 
